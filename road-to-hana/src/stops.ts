@@ -58,8 +58,14 @@ export const STOPS: Stop[] = [
 	},
 	{
 		name: 'Hāna',
-		tag: 'Ziel',
-		description: 'Angekommen im alten Hawaiʻi – entschleunigt, grün und ursprünglich.',
+		tag: 'Altes Hawaiʻi',
+		description: 'Entschleunigt, grün und ursprünglich. Kurze Pause, dann weiter nach Kīpahulu.',
 		coord: [-155.9876, 20.7568],
+	},
+	{
+		name: 'Pīpīwai Trail',
+		tag: 'Ziel · Haleakalā NP',
+		description: '6,4 km durch Bambuswald, vorbei am Banyan-Baum, zu den 120 m hohen Waimoku Falls.',
+		coord: [-156.0446, 20.6622],
 	},
 ];

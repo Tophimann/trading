@@ -272,7 +272,7 @@ export const RoadToHana: React.FC = () => {
 				<div style={{transform: `translateY(${titleY}px)`, textAlign: 'center', color: 'white', textShadow: '0 4px 30px rgba(0,0,0,0.7)'}}>
 					<div style={{fontSize: 30, letterSpacing: 10, fontWeight: 600, color: ACCENT}}>MAUI · HAWAIʻI</div>
 					<div style={{fontFamily: playfair, fontSize: 150, lineHeight: 1.05, fontWeight: 700}}>Road to Hāna</div>
-					<div style={{fontSize: 36, fontWeight: 400, marginTop: 10}}>Wailea → Hāna · {Math.round(routeKm)} km · {STOPS.length} Stopps</div>
+					<div style={{fontSize: 36, fontWeight: 400, marginTop: 10}}>Wailea → Hāna → Kīpahulu · {Math.round(routeKm)} km · {STOPS.length} Stopps</div>
 				</div>
 			</AbsoluteFill>
 
@@ -350,14 +350,14 @@ export const RoadToHana: React.FC = () => {
 					style={{
 						position: 'absolute',
 						right: 64,
-						bottom: 56,
+						top: 48,
 						padding: '36px 40px',
 						borderRadius: 24,
 						background: 'rgba(8,24,36,0.82)',
 						border: '1px solid rgba(255,255,255,0.14)',
 						color: 'white',
 						opacity: outroIn,
-						transform: `translateY(${(1 - outroIn) * 50}px)`,
+						transform: `translateY(${(1 - outroIn) * -50}px)`,
 					}}
 				>
 					<div style={{fontFamily: playfair, fontSize: 64, fontWeight: 700}}>Mahalo!</div>

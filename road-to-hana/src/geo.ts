@@ -5,9 +5,9 @@ import {STOPS} from './stops';
 // The map is rendered once as a large static "plate" and moved with CSS.
 // MapLibre uses 512 px world tiles: worldSize = 512 * 2^zoom.
 export const PLATE_W = 3840;
-export const PLATE_H = 2160;
+export const PLATE_H = 2600;
 export const PLATE_ZOOM = 12;
-export const PLATE_CENTER: [number, number] = [-156.229, 20.813];
+export const PLATE_CENTER: [number, number] = [-156.229, 20.8];
 
 const WORLD = 512 * 2 ** PLATE_ZOOM;
 const mercX = (lon: number) => (lon + 180) / 360;
@@ -102,7 +102,7 @@ export const OVERVIEW_CENTER: [number, number] = [
 	(Math.min(...xs) + Math.max(...xs)) / 2,
 	(Math.min(...ys) + Math.max(...ys)) / 2 + 40,
 ];
-export const OVERVIEW_SCALE = 0.56;
+export const OVERVIEW_SCALE = 0.53;
 export const FOLLOW_SCALE = 0.92;
 export const HOLD_SCALE = 1;
 
