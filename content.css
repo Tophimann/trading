@@ -1,0 +1,75 @@
+/* SubSphere Injected Content CSS for YouTube */
+
+/* Glowing animation for the sidebar dot */
+@keyframes subspherePulse {
+  0% {
+    transform: scale(0.9);
+    box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.7);
+  }
+  70% {
+    transform: scale(1.1);
+    box-shadow: 0 0 0 6px rgba(139, 92, 246, 0);
+  }
+  100% {
+    transform: scale(0.9);
+    box-shadow: 0 0 0 0 rgba(139, 92, 246, 0);
+  }
+}
+
+.subsphere-sidebar-glow-dot {
+  width: 6px;
+  height: 6px;
+  background-color: #8b5cf6;
+  border-radius: 50%;
+  display: inline-block;
+  animation: subspherePulse 2s infinite;
+}
+
+/* Sidebar Item Hover States */
+.subsphere-sidebar-item:hover {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Floating dialog styling and animations */
+@keyframes subsphereFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.subsphere-floating-card {
+  box-sizing: border-box;
+}
+
+.subsphere-floating-card * {
+  box-sizing: border-box;
+}
+
+/* Custom scroller inside floating card */
+.subsphere-groups-scroller::-webkit-scrollbar {
+  width: 4px;
+}
+.subsphere-groups-scroller::-webkit-scrollbar-track {
+  background: transparent;
+}
+.subsphere-groups-scroller::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+}
+.subsphere-groups-scroller::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Checkbox Row Styling */
+.subsphere-checkbox-row {
+  user-select: none;
+}
+
+.subsphere-checkbox-row:active {
+  transform: scale(0.98);
+}

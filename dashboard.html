@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>SubSphere Dashboard - Organize YouTube Subscriptions</title>
+  <link rel="stylesheet" href="theme.css">
+  <link rel="stylesheet" href="dashboard.css">
+</head>
+<body class="dashboard-body">
+  <div class="dashboard-container animate-fade">
+    
+    <!-- Top Glass Header -->
+    <header class="dashboard-header glass-panel">
+      <div class="header-branding">
+        <div class="logo-circle">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/>
+            <path d="M12 6v6l4 2"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1>SubSphere</h1>
+          <span class="sub-text">Premium Subscription Commander</span>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <!-- Backups Export/Import -->
+        <button class="btn btn-secondary" id="btn-export" title="Export Backup JSON">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          Export
+        </button>
+        <button class="btn btn-secondary" id="btn-import-trigger" title="Import Backup JSON">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Import
+        </button>
+        <input type="file" id="import-file-input" accept=".json" style="display: none;">
+
+        <div class="sync-info-pill glass-card">
+          <span class="pulse-dot"></span>
+          <span id="sync-count">0 Synced Subscriptions</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Workspace Layout -->
+    <div class="workspace">
+      
+      <!-- COLUMN 1: Groups Panel -->
+      <section class="workspace-col col-groups glass-panel">
+        <div class="panel-header">
+          <h3>Subscription Groups</h3>
+          <button class="btn btn-primary btn-icon-only" id="btn-add-group" title="Create New Group">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+          </button>
+        </div>
+
+        <div class="groups-list-container" id="groups-list">
+          <!-- Loaded dynamically -->
+        </div>
+
+        <div class="panel-footer">
+          <button class="btn btn-secondary btn-full" id="btn-add-channel-manual">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+            Add Channel Manually
+          </button>
+        </div>
+      </section>
+
+      <!-- COLUMN 2: Global Subscriptions Inventory -->
+      <section class="workspace-col col-inventory glass-panel">
+        <div class="panel-header column-flow">
+          <h3>Channels Inventory</h3>
+          <div class="search-box">
+            <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"/>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input type="text" id="inventory-search" class="input-field" placeholder="Search synced channels...">
+          </div>
+        </div>
+
+        <!-- Toolbar for bulk items -->
+        <div class="inventory-toolbar">
+          <div class="filter-tabs">
+            <button class="tab-btn active" id="tab-all-channels">All</button>
+            <button class="tab-btn" id="tab-unassigned-channels">Unassigned</button>
+          </div>
+          <span class="inventory-count" id="inventory-stats">0 total</span>
+        </div>
+
+        <!-- Draggable channels grid -->
+        <div class="channels-grid-container" id="inventory-grid">
+          <!-- Loaded dynamically -->
+        </div>
+      </section>
+
+      <!-- COLUMN 3: Active Group Organizer & Sequence Commander -->
+      <section class="workspace-col col-organizer glass-panel">
+        <div class="panel-header column-flow" id="organizer-header-area">
+          <div class="organizer-header-title">
+            <span class="active-group-indicator-dot" id="active-group-dot"></span>
+            <h3 id="active-group-name">Select a Group</h3>
+          </div>
+          <div class="organizer-actions" id="organizer-actions-bar" style="display: none;">
+            <button class="btn btn-secondary btn-icon-only" id="btn-edit-group" title="Edit Group Name/Color">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                <path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4z"/>
+              </svg>
+            </button>
+            <button class="btn btn-danger btn-icon-only" id="btn-delete-group" title="Delete Group">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="organizer-instructions" id="organizer-empty-hint">
+          <span class="hint-icon">👈</span>
+          <p>Please select a custom group folder from the left panel to organize its channels manually.</p>
+        </div>
+
+        <!-- Custom Sorter & Member List -->
+        <div class="organizer-workspace" id="organizer-workspace-area" style="display: none;">
+          <div class="drop-zone-banner" id="drop-zone-overlay">
+            <span>➕ Drop here to assign to Group</span>
+          </div>
+
+          <div class="workspace-scroll-container">
+            <div class="group-metadata-editor-bar glass-card" id="edit-mode-indicator">
+              <div class="meta-info">
+                <span>Custom Sorting Workspace</span>
+                <span class="badge-tag">Drag cards up/down to reorder manually</span>
+              </div>
+            </div>
+
+            <!-- Manually reorderable channel sequence cards list -->
+            <div class="manual-sorting-list" id="sorting-list">
+              <!-- Draggable sequence items loaded dynamically -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+
+  <!-- MODAL: ADD/EDIT GROUP -->
+  <div class="modal-overlay" id="group-modal">
+    <div class="modal-card glass-panel animate-slide-up">
+      <h3 id="modal-title">Create Subscription Group</h3>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="group-input-name">Group Name</label>
+          <input type="text" id="group-input-name" class="input-field" placeholder="e.g. Cooking Recipes, Coding tutorials">
+        </div>
+        
+        <div class="form-group">
+          <label>Theme Color Accent</label>
+          <div class="color-palette-grid">
+            <!-- Palette colors loaded dynamically -->
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="btn-modal-cancel">Cancel</button>
+        <button class="btn btn-primary" id="btn-modal-save">Save Group</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: ADD CHANNEL MANUALLY -->
+  <div class="modal-overlay" id="manual-channel-modal">
+    <div class="modal-card glass-panel animate-slide-up">
+      <h3>Add Channel Manually</h3>
+      <div class="modal-body">
+        <p class="modal-desc">Paste the link of a YouTube channel to add it manually without visiting YouTube.</p>
+        
+        <div class="form-group">
+          <label for="manual-channel-url">YouTube Channel Link or @Handle</label>
+          <input type="text" id="manual-channel-url" class="input-field" placeholder="e.g. https://www.youtube.com/@MrBeast or https://youtube.com/channel/UC...">
+        </div>
+
+        <div class="form-group">
+          <label for="manual-channel-name">Channel Name (Optional)</label>
+          <input type="text" id="manual-channel-name" class="input-field" placeholder="If blank, it will resolve automatically">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="btn-manual-cancel">Cancel</button>
+        <button class="btn btn-primary" id="btn-manual-save">Add Channel</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="dashboard.js"></script>
+</body>
+</html>
