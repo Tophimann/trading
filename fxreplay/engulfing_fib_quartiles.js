@@ -128,9 +128,20 @@ function drawRecord(ids, r, now, tfTag) {
   const top = r.top;
   const bot = r.bot;
   const rng = top - bot;
-  const x1 = r.key;
-  let x2 = Math.min(now, r.targetEnd);           // never draw into the future
-  if (x2 <= x1) x2 = r.targetEnd;                 // zone on the current candle: show full width
+  let x1;
+  let x2;
+  if (r.idx !== null) {
+    // Chart TF: anchor by bar index. FXreplay's 4H time grid can be off by an
+    // hour vs. the candle timestamps (DST?), which makes time anchors land
+    // between candles; bar() avoids any time conversion.
+    x1 = bar(r.idx);
+    x2 = bar(r.idx + boxWidthBars);
+  } else {
+    // Higher TF on a lower chart: time anchors (proven to work)
+    x1 = r.key;
+    x2 = Math.min(now, r.targetEnd);              // never draw into the future
+    if (x2 <= x1) x2 = r.targetEnd;
+  }
 
   reg(ids, 'r', rectangle.create(x1, top, x2, bot, {
     fillColor: r.bull ? bullColor : bearColor,
@@ -170,17 +181,17 @@ function findRec(recs, key) {
 }
 
 // Returns true if the record list changed
-function upsertSignal(recs, a, b, span, allowRemove) {
-  const idx = findRec(recs, a.t);
+function upsertSignal(recs, a, b, span, allowRemove, idx) {
+  const pos = findRec(recs, a.t);
   const dir = engulfDir(a, b);
   if (dir === null) {
-    if (allowRemove && idx >= 0) { recs.splice(idx, 1); return true; }
+    if (allowRemove && pos >= 0) { recs.splice(pos, 1); return true; }
     return false;
   }
-  const rec = { key: a.t, top: a.h, bot: a.l, bull: dir === 'bull', targetEnd: a.t + span };
-  if (idx < 0) { recs.push(rec); return true; }
-  const old = recs[idx];
-  if (old.top !== rec.top || old.bot !== rec.bot || old.bull !== rec.bull) { recs[idx] = rec; return true; }
+  const rec = { key: a.t, idx: idx, top: a.h, bot: a.l, bull: dir === 'bull', targetEnd: a.t + span };
+  if (pos < 0) { recs.push(rec); return true; }
+  const old = recs[pos];
+  if (old.top !== rec.top || old.bot !== rec.bot || old.bull !== rec.bull || old.idx !== rec.idx) { recs[pos] = rec; return true; }
   return false;
 }
 
@@ -208,7 +219,7 @@ function manageTf(enabled, res, series, st) {
     const c0 = barAt(src, 0);
     const c1 = barAt(src, 1);
     if (isValidBar(c0) && isValidBar(c1)) {
-      if (upsertSignal(st.recs, c0, c1, span, true)) changed = true;
+      if (upsertSignal(st.recs, c0, c1, span, true, barIndex)) changed = true;
     }
   }
 
@@ -219,7 +230,8 @@ function manageTf(enabled, res, series, st) {
     const b = barAt(src, i + 1);
     if (!isValidBar(a) || !isValidBar(b)) break;
     if (st.recs.length >= historyCount && a.t < st.recs[0].key) break;
-    if (upsertSignal(st.recs, a, b, span, i === 1)) changed = true;
+    const idx = src === null ? barIndex - i : null;   // bar index only on chart TF
+    if (upsertSignal(st.recs, a, b, span, i === 1, idx)) changed = true;
   }
 
   // 3) Keep newest `historyCount` records

@@ -27,6 +27,9 @@ Over several sessions we saw the following, and it is inconsistent:
 4. Two text labels were visible at once, even though the script deletes the old label before it creates a new one. So either deleting by ID failed, or an earlier script instance left its drawing behind.
 5. After switching from 1H to 4H, drawings from the 1H instance stayed visible on the 4H chart.
 
+**Key observation: the 4H time axis is off by one hour**
+On XAUUSD 4H (replay date: 26 May 2020), the crosshair shows a candle open of **17:00**, but a vertical line snapped to that same candle shows **18:00**. On the next candle, the line shows 21:00. The time axis labels also jump 8 hours between two neighbouring 4H candles (09:00 → 17:00) on Mon 25 May 2020. So on 4H, candle timestamps and the drawing time axis do not match. Drawings anchored to a candle's timestamp can end up between candles, which would explain why they disappear. On 1H every full hour is a candle, so the same offset just shifts the drawing by one candle, and on 1D it gets lost within the day.
+
 **What we ruled out**
 - **Script logic:** The probe contains no trading logic. We also tested four different implementations of the actual indicator (draw once, closed bars only, stateless redraw, records with a redraw per bar). All of them work on 1H and 1D, and all of them fail on 4H.
 - **Data availability on 4H as a higher timeframe:** The same indicator draws 4H zones correctly on a 1H chart, using `symbol({ timeframe: '240' })`.
