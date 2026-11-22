@@ -3,9 +3,10 @@ indicator({ onMainPanel: true, format: 'inherit', maxDrawings: 500 });
 
 // =====================================================================
 // Engulfing Fib Quartiles (FXreplay)
-// - Evaluates CLOSED candles only (no repaint, no flicker)
-// - One code path for chart TF and higher TFs
-// - All anchoring by time (no barIndex: unreliable with maxBarsBack)
+// - Evaluates CLOSED candles only (no repaint)
+// - STATELESS redraw: every run rebuilds the last N zones from history,
+//   so drawings the engine drops are restored on the next run
+// - One code path for chart TF and higher TFs, anchored by time
 // =====================================================================
 
 // ==================== 1. TIMEFRAMES ====================
@@ -99,24 +100,41 @@ function engulfDir(a, b) {
   return null;
 }
 
-// ==================== ZONE: CREATE / UPDATE / DELETE ====================
-function createZone(x1, x2, top, bot, isBull, tfTag, targetEnd) {
-  const rng = top - bot;
-  const lines = [];
-  const texts = [];
+// ==================== DRAWING REGISTRY ====================
+// Every drawing id is stored with its type so it can be deleted safely.
+// Deletes are wrapped in try/catch: the engine may already have removed it.
+function reg(ids, kind, id) {
+  if (id !== null && id !== undefined) ids.push({ k: kind, id: id });
+}
 
-  const boxId = rectangle.create(x1, top, x2, bot, {
+function clearAll(ids) {
+  for (let k = 0; k < ids.length; k++) {
+    const d = ids[k];
+    try {
+      if (d.k === 'r') rectangle.delete(d.id);
+      else if (d.k === 'l') trendLine.delete(d.id);
+      else text.delete(d.id);
+    } catch (e) {}
+  }
+  ids.length = 0;
+}
+
+// ==================== ZONE: DRAW ====================
+function drawZone(ids, x1, x2, top, bot, isBull, tfTag) {
+  const rng = top - bot;
+
+  reg(ids, 'r', rectangle.create(x1, top, x2, bot, {
     fillColor: isBull ? bullColor : bearColor,
     color: rgba(0, 0, 0, 0),
     borderColor: rgba(0, 0, 0, 0),
     borderWidth: 0,
     width: 0,
-  });
+  }));
 
   // Quartiles inside the box
-  lines.push(trendLine.create(x1, bot + rng * 0.25, x2, bot + rng * 0.25, { color: qColor, style: 'dashed', width: 1 }));
-  lines.push(trendLine.create(x1, bot + rng * 0.5, x2, bot + rng * 0.5, { color: qColor, style: 'solid', width: 1 }));
-  lines.push(trendLine.create(x1, bot + rng * 0.75, x2, bot + rng * 0.75, { color: qColor, style: 'dashed', width: 1 }));
+  reg(ids, 'l', trendLine.create(x1, bot + rng * 0.25, x2, bot + rng * 0.25, { color: qColor, style: 'dashed', width: 1 }));
+  reg(ids, 'l', trendLine.create(x1, bot + rng * 0.5, x2, bot + rng * 0.5, { color: qColor, style: 'solid', width: 1 }));
+  reg(ids, 'l', trendLine.create(x1, bot + rng * 0.75, x2, bot + rng * 0.75, { color: qColor, style: 'dashed', width: 1 }));
 
   // STD projections (above bull candle, below bear candle)
   // Objects (not mixed tuples) so TypeScript types 'lvl' as number, not boolean | number
@@ -129,77 +147,59 @@ function createZone(x1, x2, top, bot, isBull, tfTag, targetEnd) {
     if (!stds[k].on) continue;
     const lvl = Number(stds[k].lvl);
     const p = isBull ? top + rng * lvl : bot - rng * lvl;
-    lines.push(trendLine.create(x1, p, x2, p, { color: stdColor, style: 'dotted', width: 1 }));
+    reg(ids, 'l', trendLine.create(x1, p, x2, p, { color: stdColor, style: 'dotted', width: 1 }));
     if (showStdLabels) {
-      texts.push(text.create(x2, p, { text: tfTag + ' STD ' + String(lvl), color: stdColor, fontSize: 10 }));
+      reg(ids, 't', text.create(x2, p, { text: tfTag + ' STD ' + String(lvl), color: stdColor, fontSize: 10 }));
     }
   }
-
-  return { box: boxId, lines: lines, texts: texts, right: x2, targetEnd: targetEnd };
 }
 
-function setZoneRight(z, x2) {
-  z.right = x2;
-  rectangle.update(z.box, { x2: x2 });
-  for (let k = 0; k < z.lines.length; k++) trendLine.update(z.lines[k], { x2: x2 });
-  for (let k = 0; k < z.texts.length; k++) text.update(z.texts[k], { x: x2 });
-}
+// ==================== CORE: REDRAW ONE TF (STATELESS) ====================
+// On every run: delete everything this TF drew last time, then rebuild the
+// last `historyCount` zones from price history. Nothing depends on drawings
+// surviving between runs -> if the engine drops a drawing, the next run
+// restores it (self-healing).
+const MAX_SCAN = 195; // stay inside @maxBarsBack 200 (we read i and i+1)
 
-function deleteZone(z) {
-  rectangle.delete(z.box);
-  for (let k = 0; k < z.lines.length; k++) trendLine.delete(z.lines[k]);
-  for (let k = 0; k < z.texts.length; k++) text.delete(z.texts[k]);
-}
-
-// ==================== CORE: MANAGE ONE TF ====================
-// Returns the new "last seen bar time" for this TF.
-function manageTf(enabled, res, series, zones, prevTime) {
-  if (!enabled) return prevTime;
+function redrawTf(enabled, res, series, ids) {
+  clearAll(ids);
+  if (!enabled) return;
 
   const tfMin = tfMinutes(res);
-  if (!(tfMin > 0) || !(chartMin > 0)) return prevTime;
-  if (tfMin < chartMin) return prevTime;          // lower TF than chart: not shown
-  if (tfMin > chartMin && series === null) return prevTime;
+  if (!(tfMin > 0) || !(chartMin > 0)) return;
+  if (tfMin < chartMin) return;                 // lower TF than chart: not shown
+  if (tfMin > chartMin && series === null) return;
 
   const src = tfMin === chartMin ? null : series;
   const now = time(0);
-  if (!Number.isFinite(now)) return prevTime;
-  const msPerMin = now < 1e11 ? 60 : 60000;       // seconds vs. milliseconds
+  if (!Number.isFinite(now)) return;
+  const msPerMin = now < 1e11 ? 60 : 60000;     // seconds vs. milliseconds
+  const span = tfMin * msPerMin * boxWidthBars;
+  const tag = String(res);
 
-  // 1) Grow active boxes up to the current time (never draw into the future)
-  for (let i = 0; i < zones.length; i++) {
-    const z = zones[i];
-    if (z.right < z.targetEnd && now > z.right) setZoneRight(z, Math.min(now, z.targetEnd));
-  }
+  // i = 1 is the last CLOSED candle (0 = still forming)
+  let found = 0;
+  for (let i = 1; i <= MAX_SCAN && found < historyCount; i++) {
+    const a = barAt(src, i);
+    const b = barAt(src, i + 1);
+    if (!isValidBar(a) || !isValidBar(b)) break;
 
-  // 2) New bar on this TF? -> bar[1] has just closed and is final
-  const cur = barAt(src, 0);
-  if (!Number.isFinite(cur.t) || cur.t === prevTime) return prevTime;
+    const dir = engulfDir(a, b);
+    if (dir === null) continue;
 
-  const a = barAt(src, 1);   // just-closed candle (candidate)
-  const b = barAt(src, 2);   // candle before it
-  if (!isValidBar(a) || !isValidBar(b)) return cur.t;
-
-  const dir = engulfDir(a, b);
-  if (dir !== null) {
-    const targetEnd = a.t + tfMin * msPerMin * boxWidthBars;
-    let right = Math.min(now, targetEnd);
+    let right = Math.min(now, a.t + span);      // never draw into the future
     if (right <= a.t) right = now;
-    zones.push(createZone(a.t, right, a.h, a.l, dir === 'bull', String(res), targetEnd));
-    while (zones.length > historyCount) deleteZone(zones.shift());
+    drawZone(ids, a.t, right, a.h, a.l, dir === 'bull', tag);
+    found++;
   }
-
-  return cur.t;
 }
 
 // ==================== STATE FOR 3 TIMEFRAMES ====================
-var lastT1 = null;
-var lastT2 = null;
-var lastT3 = null;
-var zones1 = [];
-var zones2 = [];
-var zones3 = [];
+// Only drawing ids are kept between runs - no signal state.
+var ids1 = [];
+var ids2 = [];
+var ids3 = [];
 
-lastT1 = manageTf(useTf1, tf1, htf1, zones1, lastT1);
-lastT2 = manageTf(useTf2, tf2, htf2, zones2, lastT2);
-lastT3 = manageTf(useTf3, tf3, htf3, zones3, lastT3);
+redrawTf(useTf1, tf1, htf1, ids1);
+redrawTf(useTf2, tf2, htf2, ids2);
+redrawTf(useTf3, tf3, htf3, ids3);
