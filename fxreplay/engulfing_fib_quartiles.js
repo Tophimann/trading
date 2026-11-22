@@ -119,14 +119,15 @@ function createZone(x1, x2, top, bot, isBull, tfTag, targetEnd) {
   lines.push(trendLine.create(x1, bot + rng * 0.75, x2, bot + rng * 0.75, { color: qColor, style: 'dashed', width: 1 }));
 
   // STD projections (above bull candle, below bear candle)
+  // Objects (not mixed tuples) so TypeScript types 'lvl' as number, not boolean | number
   const stds = [
-    [useStd1, std1Val],
-    [useStd2, std2Val],
-    [useStd3, std3Val],
+    { on: useStd1, lvl: std1Val },
+    { on: useStd2, lvl: std2Val },
+    { on: useStd3, lvl: std3Val },
   ];
   for (let k = 0; k < stds.length; k++) {
-    if (!stds[k][0]) continue;
-    const lvl = stds[k][1];
+    if (!stds[k].on) continue;
+    const lvl = Number(stds[k].lvl);
     const p = isBull ? top + rng * lvl : bot - rng * lvl;
     lines.push(trendLine.create(x1, p, x2, p, { color: stdColor, style: 'dotted', width: 1 }));
     if (showStdLabels) {
