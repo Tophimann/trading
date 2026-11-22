@@ -1,0 +1,177 @@
+//@version=6
+indicator("Protected Swing (ICT)", overlay = true, max_labels_count = 500, max_boxes_count = 500)
+
+// ============================================================
+// Protected Swing (ICT)
+// A bullish FVG forms -> price pulls back and touches the FVG
+// zone (bearish candles included) -> price turns bullish and
+// closes above the highest open among the bearish candles that
+// touched the zone (CISD) -> the lowest low touched during that
+// pullback becomes a Protected Swing Low.
+// Mirrored for a bearish FVG -> Protected Swing High.
+// A protected point is de-protected the moment price CLOSES
+// through it again (a wick alone does not invalidate it).
+//
+// FVGs stay valid indefinitely until fully violated (closed
+// through) -- no timeout.
+// ============================================================
+
+bullColor     = input.color(color.new(color.lime, 0), "Protected Swing Low Color")
+bearColor     = input.color(color.new(color.red, 0), "Protected Swing High Color")
+dotSizeInput  = input.string("Tiny", "Dot Size", options = ["Tiny", "Small", "Normal"])
+dotOffsetMult = input.float(0.1, "Dot Distance from Swing (ATR mult.)", minval = 0.0, step = 0.05)
+showFvgBoxes  = input.bool(true, "Show Detected FVG Zones")
+fvgBoxBullColor = input.color(color.new(color.lime, 85), "Bullish FVG Zone Color")
+fvgBoxBearColor = input.color(color.new(color.red, 85), "Bearish FVG Zone Color")
+
+dotSize   = dotSizeInput == "Tiny" ? size.tiny : dotSizeInput == "Small" ? size.small : size.normal
+atrOffset = ta.atr(14) * dotOffsetMult
+
+// ---------------- FVG formation ----------------
+bullFVG = low > high[2]
+bearFVG = high < low[2]
+
+// ---------------- Bullish FVG tracking -> Protected Swing Low ----------------
+var float[] bTop       = array.new_float()
+var float[] bBot       = array.new_float()
+var float[] bOrigin    = array.new_float()   // na until first bearish touch
+var float[] bSwingLow  = array.new_float()   // na until first touch
+var int[]   bSwingBar  = array.new_int()
+var box[]   bBox        = array.new_box()
+
+if bullFVG
+    array.push(bTop, low)
+    array.push(bBot, high[2])
+    array.push(bOrigin, na)
+    array.push(bSwingLow, na)
+    array.push(bSwingBar, na)
+    newBox = showFvgBoxes ? box.new(bar_index - 2, low, bar_index, high[2], border_color = fvgBoxBullColor, bgcolor = fvgBoxBullColor, extend = extend.none) : na
+    array.push(bBox, newBox)
+
+var float[] protLowPrice = array.new_float()
+var int[]   protLowBar   = array.new_int()
+var label[] protLowDot   = array.new_label()
+
+if array.size(bTop) > 0
+    for i = array.size(bTop) - 1 to 0
+        top      = array.get(bTop, i)
+        bot      = array.get(bBot, i)
+        theBox   = array.get(bBox, i)
+        touches  = low <= top and high >= bot
+        violated = close < bot
+        if violated
+            box.delete(theBox)
+            array.remove(bTop, i)
+            array.remove(bBot, i)
+            array.remove(bOrigin, i)
+            array.remove(bSwingLow, i)
+            array.remove(bSwingBar, i)
+            array.remove(bBox, i)
+        else
+            if not na(theBox)
+                box.set_right(theBox, bar_index)
+            if touches
+                curOrigin = array.get(bOrigin, i)
+                curLow    = array.get(bSwingLow, i)
+                if close < open
+                    array.set(bOrigin, i, na(curOrigin) ? open : math.max(curOrigin, open))
+                if na(curLow) or low < curLow
+                    array.set(bSwingLow, i, low)
+                    array.set(bSwingBar, i, bar_index)
+                finalOrigin = array.get(bOrigin, i)
+                if not na(finalOrigin) and close > finalOrigin
+                    swingPrice = array.get(bSwingLow, i)
+                    swingBar   = array.get(bSwingBar, i)
+                    dotY = swingPrice - atrOffset
+                    dot  = label.new(swingBar, dotY, "", xloc.bar_index, yloc.price, bullColor, label.style_circle, bullColor, size = dotSize)
+                    array.push(protLowPrice, swingPrice)
+                    array.push(protLowBar, swingBar)
+                    array.push(protLowDot, dot)
+                    box.delete(theBox)
+                    array.remove(bTop, i)
+                    array.remove(bBot, i)
+                    array.remove(bOrigin, i)
+                    array.remove(bSwingLow, i)
+                    array.remove(bSwingBar, i)
+                    array.remove(bBox, i)
+
+// ---------------- Bearish FVG tracking -> Protected Swing High ----------------
+var float[] rTop        = array.new_float()
+var float[] rBot        = array.new_float()
+var float[] rOrigin     = array.new_float()   // na until first bullish touch
+var float[] rSwingHigh  = array.new_float()   // na until first touch
+var int[]   rSwingBar   = array.new_int()
+var box[]   rBox        = array.new_box()
+
+if bearFVG
+    array.push(rTop, low[2])
+    array.push(rBot, high)
+    array.push(rOrigin, na)
+    array.push(rSwingHigh, na)
+    array.push(rSwingBar, na)
+    newBox = showFvgBoxes ? box.new(bar_index - 2, low[2], bar_index, high, border_color = fvgBoxBearColor, bgcolor = fvgBoxBearColor, extend = extend.none) : na
+    array.push(rBox, newBox)
+
+var float[] protHighPrice = array.new_float()
+var int[]   protHighBar   = array.new_int()
+var label[] protHighDot   = array.new_label()
+
+if array.size(rTop) > 0
+    for i = array.size(rTop) - 1 to 0
+        top      = array.get(rTop, i)
+        bot      = array.get(rBot, i)
+        theBox   = array.get(rBox, i)
+        touches  = high >= bot and low <= top
+        violated = close > top
+        if violated
+            box.delete(theBox)
+            array.remove(rTop, i)
+            array.remove(rBot, i)
+            array.remove(rOrigin, i)
+            array.remove(rSwingHigh, i)
+            array.remove(rSwingBar, i)
+            array.remove(rBox, i)
+        else
+            if not na(theBox)
+                box.set_right(theBox, bar_index)
+            if touches
+                curOrigin = array.get(rOrigin, i)
+                curHigh   = array.get(rSwingHigh, i)
+                if close > open
+                    array.set(rOrigin, i, na(curOrigin) ? open : math.min(curOrigin, open))
+                if na(curHigh) or high > curHigh
+                    array.set(rSwingHigh, i, high)
+                    array.set(rSwingBar, i, bar_index)
+                finalOrigin = array.get(rOrigin, i)
+                if not na(finalOrigin) and close < finalOrigin
+                    swingPrice = array.get(rSwingHigh, i)
+                    swingBar   = array.get(rSwingBar, i)
+                    dotY = swingPrice + atrOffset
+                    dot  = label.new(swingBar, dotY, "", xloc.bar_index, yloc.price, bearColor, label.style_circle, bearColor, size = dotSize)
+                    array.push(protHighPrice, swingPrice)
+                    array.push(protHighBar, swingBar)
+                    array.push(protHighDot, dot)
+                    box.delete(theBox)
+                    array.remove(rTop, i)
+                    array.remove(rBot, i)
+                    array.remove(rOrigin, i)
+                    array.remove(rSwingHigh, i)
+                    array.remove(rSwingBar, i)
+                    array.remove(rBox, i)
+
+// ---------------- de-protect on close break ----------------
+if array.size(protLowPrice) > 0
+    for i = array.size(protLowPrice) - 1 to 0
+        if close < array.get(protLowPrice, i)
+            label.delete(array.get(protLowDot, i))
+            array.remove(protLowPrice, i)
+            array.remove(protLowBar, i)
+            array.remove(protLowDot, i)
+
+if array.size(protHighPrice) > 0
+    for i = array.size(protHighPrice) - 1 to 0
+        if close > array.get(protHighPrice, i)
+            label.delete(array.get(protHighDot, i))
+            array.remove(protHighPrice, i)
+            array.remove(protHighBar, i)
+            array.remove(protHighDot, i)

@@ -1,0 +1,21 @@
+{
+  "name": "road-to-hana",
+  "private": true,
+  "scripts": {
+    "dev": "remotion studio",
+    "render": "remotion render RoadToHana out/road-to-hana.mp4 --gl=angle --concurrency=1"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.534",
+    "@remotion/google-fonts": "^4.0.534",
+    "@turf/turf": "^7.4.0",
+    "maplibre-gl": "^6.13.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "remotion": "^4.0.534"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "typescript": "^7.0.2"
+  }
+}
