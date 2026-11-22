@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>SubSphere</title>
+  <link rel="stylesheet" href="theme.css">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body class="popup-body">
+  <div class="popup-container glass-panel animate-fade">
+    <!-- Header -->
+    <header class="popup-header">
+      <div class="logo-area">
+        <div class="logo-icon-container">
+          <span class="logo-glow"></span>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="logo-svg">
+            <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/>
+            <path d="M12 6v6l4 2"/>
+          </svg>
+        </div>
+        <div class="logo-text">
+          <h1>SubSphere</h1>
+          <span class="tagline">Subscription Organizer</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Stats Dashboard Grid -->
+    <div class="stats-section">
+      <div class="stats-grid">
+        <div class="stat-card glass-card">
+          <span class="stat-num" id="stat-groups">0</span>
+          <span class="stat-label">Groups</span>
+        </div>
+        <div class="stat-card glass-card">
+          <span class="stat-num" id="stat-channels">0</span>
+          <span class="stat-label">Channels</span>
+        </div>
+      </div>
+      
+      <div class="sync-status glass-card">
+        <div class="status-indicator">
+          <span class="status-dot pulsing"></span>
+          <span id="sync-text">Auto-sync active</span>
+        </div>
+        <span class="sync-time" id="sync-time-val">Ready to organize</span>
+      </div>
+    </div>
+
+    <!-- Quick Navigation Actions -->
+    <div class="actions-section">
+      <button class="btn btn-primary" id="btn-open-sidebar">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+          <line x1="9" y1="3" x2="9" y2="21"/>
+        </svg>
+        Open Sidebar Feed
+      </button>
+      
+      <button class="btn btn-secondary" id="btn-open-dashboard">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+          <line x1="3" y1="9" x2="21" y2="9"/>
+          <line x1="9" y1="21" x2="9" y2="9"/>
+        </svg>
+        Subscription Dashboard
+      </button>
+    </div>
+
+    <!-- Instructions / Tips Info Panel -->
+    <footer class="popup-footer">
+      <div class="tip-box">
+        <span class="tip-icon">💡</span>
+        <span class="tip-text">Open any Channel page on YouTube to add it to your custom groups directly!</span>
+      </div>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
