@@ -126,12 +126,16 @@ var float bull_run_open     = na
 var int   bull_run_bar      = na
 var float bull_run_high     = na
 var int   bull_run_high_bar = na
+var float cand_bull_open    = na
+var int   cand_bull_bar     = na
 
 var bool  bear_run_active   = false
 var float bear_run_open     = na
 var int   bear_run_bar      = na
 var float bear_run_low      = na
 var int   bear_run_low_bar  = na
+var float cand_bear_open    = na
+var int   cand_bear_bar     = na
 
 // Letzte nicht-Doji Kerzenrichtung (1 = bullisch, -1 = bärisch, 0 = initial).
 // Dojis (close == open) werden neutral behandelt und resetten keinen Run.
@@ -141,11 +145,15 @@ bool bullish_cisd_triggered = false
 bool bearish_cisd_triggered = false
 
 if barstate.isconfirmed
+    bool made_new_high = false
+    bool made_new_low  = false
+
     // 1. PRÜFEN OB AKTIVER BULLISCHER RUN GEBROCHEN WIRD (BEARISH CISD)
     if bull_run_active
         if high > bull_run_high
             bull_run_high     := high
             bull_run_high_bar := bar_index
+            made_new_high     := true
 
         if close < bull_run_open
             bull_run_active := false
@@ -163,6 +171,7 @@ if barstate.isconfirmed
         if low < bear_run_low
             bear_run_low     := low
             bear_run_low_bar := bar_index
+            made_new_low     := true
 
         if close > bear_run_open
             bear_run_active := false
@@ -176,8 +185,10 @@ if barstate.isconfirmed
                 alert(str.format("{0} {1}: Bullish CISD bestätigt @ {2} | CISD-Open: {3} | Protected Low: {4}", syminfo.ticker, timeframe.period, str.tostring(close, format.mintick), str.tostring(bear_run_open, format.mintick), str.tostring(bear_run_low, format.mintick)), alert.freq_once_per_bar_close)
 
     // 3. NEUE OPPOSING RUNS STARTEN ODER FORTSETZEN
-    // Referenz-Open wird bei jeder neuen Opposing-Serie aktualisiert;
-    // das Swing-Extrem bleibt jedoch über den gesamten aktiven Run erhalten.
+    // Eine neue Opposing-Serie überschreibt das CISD-Referenz-Open erst dann,
+    // wenn sie tatsächlich ein neues Swing-Extrem erzeugt. So bleibt bei
+    // mehrkerzigen Pullbacks (z. B. Inside-/Lower-High- oder Higher-Low-Kerzen)
+    // das ursprüngliche CISD-Level der extrembildenden Serie erhalten.
     if close > open
         if not bull_run_active
             bull_run_active   := true
@@ -185,15 +196,15 @@ if barstate.isconfirmed
             bull_run_bar      := bar_index
             bull_run_high     := high
             bull_run_high_bar := bar_index
-        else if last_dir != 1
-            bull_run_open     := open
-            bull_run_bar      := bar_index
-            if high > bull_run_high
-                bull_run_high     := high
-                bull_run_high_bar := bar_index
-        else if high > bull_run_high
-            bull_run_high     := high
-            bull_run_high_bar := bar_index
+            cand_bull_open    := open
+            cand_bull_bar     := bar_index
+        else
+            if last_dir != 1
+                cand_bull_open := open
+                cand_bull_bar  := bar_index
+            if made_new_high
+                bull_run_open := cand_bull_open
+                bull_run_bar  := cand_bull_bar
         last_dir := 1
     else if close < open
         if not bear_run_active
@@ -202,15 +213,15 @@ if barstate.isconfirmed
             bear_run_bar     := bar_index
             bear_run_low     := low
             bear_run_low_bar := bar_index
-        else if last_dir != -1
-            bear_run_open    := open
-            bear_run_bar     := bar_index
-            if low < bear_run_low
-                bear_run_low     := low
-                bear_run_low_bar := bar_index
-        else if low < bear_run_low
-            bear_run_low     := low
-            bear_run_low_bar := bar_index
+            cand_bear_open   := open
+            cand_bear_bar    := bar_index
+        else
+            if last_dir != -1
+                cand_bear_open := open
+                cand_bear_bar  := bar_index
+            if made_new_low
+                bear_run_open := cand_bear_open
+                bear_run_bar  := cand_bear_bar
         last_dir := -1
 
 // ==========================================
