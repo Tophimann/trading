@@ -5,8 +5,8 @@ indicator("Protected Swings mit CISD (Opposing Run) [SMC / ICT]", overlay=true, 
 // EINSTELLUNGEN (INPUTS)
 // ==========================================
 grp_swing = "Swing & CISD Einstellungen"
-swing_left      = input.int(2, "Swing-Filter links (0 = Alle CISDs)", minval=0, maxval=50, group=grp_swing, tooltip="Wie viele Kerzen links vom Hoch/Tief niedriger/höher sein müssen. Kleinere Werte (z. B. 2) erkennen auch kurzfristige Swings ohne Verzögerung. 0 = jeder CISD ohne Filter.")
-max_swings      = input.int(5, "Anzahl angezeigter Protected Swings (0 = Alle)", minval=0, maxval=200, group=grp_swing, tooltip="Wie viele Protected Swings maximal im Chart sichtbar bleiben sollen. Ältere werden automatisch gelöscht. 0 = Alle behalten.")
+swing_left      = input.int(2, "Swing-Filter links (0 = Alle CISDs)", minval=0, maxval=50, group=grp_swing, tooltip="Wie viele Kerzen links vom Hoch/Tief niedriger/höher sein müssen. Kleinere Werte (z. B. 2) erkennen auch kurzfristige Swings ohne Pivot-Rechts-Lag. Equal Highs/Lows werden als gültiger Swing akzeptiert. 0 = jeder CISD ohne Filter.")
+max_swings      = input.int(5, "Anzahl angezeigter Protected Swings (0 = Max)", minval=0, maxval=250, group=grp_swing, tooltip="Wie viele Protected Swings maximal im Chart sichtbar bleiben sollen. Ältere werden automatisch gelöscht. 0 = Maximum innerhalb des TradingView-Limits (500 Labels/Linien; mit CISD-Text max. 125 pro Seite bzw. 250 gesamt).")
 separate_counts = input.bool(true, "Zählung getrennt für Highs & Lows", group=grp_swing, tooltip="Aktiv: Zeigt z. B. die letzten 5 Highs UND 5 Lows. Inaktiv: Zeigt die letzten 5 Swings insgesamt.")
 show_label_txt  = input.bool(true, "Text 'CISD' am Ende der Linie anzeigen", group=grp_swing)
 
@@ -22,6 +22,11 @@ color_bear_dot  = input.color(color.new(#f23645, 0), "Farbe: Punkt Protected Hig
 color_bear_line = input.color(color.new(#f23645, 10), "Farbe: Linie Bärischer CISD", group=grp_visual)
 line_width      = input.int(2, "Linienbreite", minval=1, maxval=4, group=grp_visual)
 line_style_str  = input.string("Solid", "Linienstil", options=["Solid", "Dashed", "Dotted"], group=grp_visual)
+
+// History-Puffer explizit absichern gegen dynamische Offset-Laufzeitfehler
+int MAX_HIST_BARS = 1000
+max_bars_back(high, 1000)
+max_bars_back(low, 1000)
 
 get_line_style(string style) =>
     switch style
@@ -53,50 +58,34 @@ get_line_params(int break_bar) =>
         x2 := break_bar + extra_bars
     [x2, ext]
 
+// Effektive Obergrenze passend zum TradingView-Limit (500 Linien / 500 Labels)
+int labels_per_swing = show_label_txt ? 2 : 1
+int hard_cap         = separate_counts ? math.floor(500 / (labels_per_swing * 2)) : math.floor(500 / labels_per_swing)
+int effective_max    = max_swings == 0 ? hard_cap : math.min(max_swings, hard_cap)
+
 // ==========================================
 // SPEICHER-QUEUES ZUR BEGRENZUNG DER ANZEIGE
 // ==========================================
-var line[]  all_lines = array.new_line()
-var label[] all_dots  = array.new_label()
-var label[] all_texts = array.new_label()
+type Swing
+    line  cisd_line
+    label dot
+    label txt
 
-var line[]  bull_lines = array.new_line()
-var label[] bull_dots  = array.new_label()
-var label[] bull_texts = array.new_label()
+var array<Swing> all_swings  = array.new<Swing>()
+var array<Swing> bull_swings = array.new<Swing>()
+var array<Swing> bear_swings = array.new<Swing>()
 
-var line[]  bear_lines = array.new_line()
-var label[] bear_dots  = array.new_label()
-var label[] bear_texts = array.new_label()
+delete_swing(Swing s) =>
+    line.delete(s.cisd_line)
+    label.delete(s.dot)
+    if not na(s.txt)
+        label.delete(s.txt)
 
 register_swing(line l, label dot, label txt, bool is_bull) =>
-    if separate_counts
-        lines_arr = is_bull ? bull_lines : bear_lines
-        dots_arr  = is_bull ? bull_dots  : bear_dots
-        texts_arr = is_bull ? bull_texts : bear_texts
-        
-        array.push(lines_arr, l)
-        array.push(dots_arr, dot)
-        array.push(texts_arr, txt)
-        
-        if max_swings > 0
-            while array.size(dots_arr) > max_swings
-                line.delete(array.shift(lines_arr))
-                label.delete(array.shift(dots_arr))
-                txt_del = array.shift(texts_arr)
-                if not na(txt_del)
-                    label.delete(txt_del)
-    else
-        array.push(all_lines, l)
-        array.push(all_dots, dot)
-        array.push(all_texts, txt)
-        
-        if max_swings > 0
-            while array.size(all_dots) > max_swings
-                line.delete(array.shift(all_lines))
-                label.delete(array.shift(all_dots))
-                txt_del = array.shift(all_texts)
-                if not na(txt_del)
-                    label.delete(txt_del)
+    array<Swing> target_arr = separate_counts ? (is_bull ? bull_swings : bear_swings) : all_swings
+    array.push(target_arr, Swing.new(l, dot, txt))
+    while array.size(target_arr) > effective_max
+        delete_swing(array.shift(target_arr))
 
 // ==========================================
 // HELPER: LOKALES SWING-HOCH / -TIEF PRÜFEN (OHNE RECHTS-LAG)
@@ -105,24 +94,32 @@ is_local_high(int target_bar, float target_high, int left_bars) =>
     bool ok = true
     if left_bars > 0
         int offset = bar_index - target_bar
-        for i = 1 to left_bars
-            if high[offset + i] > target_high
-                ok := false
-                break
+        if offset >= 0
+            for i = 1 to left_bars
+                int idx = offset + i
+                if idx > bar_index or idx > MAX_HIST_BARS
+                    break
+                if high[idx] > target_high
+                    ok := false
+                    break
     ok
 
 is_local_low(int target_bar, float target_low, int left_bars) =>
     bool ok = true
     if left_bars > 0
         int offset = bar_index - target_bar
-        for i = 1 to left_bars
-            if low[offset + i] < target_low
-                ok := false
-                break
+        if offset >= 0
+            for i = 1 to left_bars
+                int idx = offset + i
+                if idx > bar_index or idx > MAX_HIST_BARS
+                    break
+                if low[idx] < target_low
+                    ok := false
+                    break
     ok
 
 // ==========================================
-// LIVE OPPOSING-RUN TRACKING (ZERO LAG)
+// OPPOSING-RUN TRACKING (OHNE PIVOT-RECHTS-LAG, BAR-CLOSE BESTÄTIGT)
 // ==========================================
 var bool  bull_run_active   = false
 var float bull_run_open     = na
@@ -136,66 +133,88 @@ var int   bear_run_bar      = na
 var float bear_run_low      = na
 var int   bear_run_low_bar  = na
 
-bullish_cisd_triggered = false
-bearish_cisd_triggered = false
+// Letzte nicht-Doji Kerzenrichtung (1 = bullisch, -1 = bärisch, 0 = initial).
+// Dojis (close == open) werden neutral behandelt und resetten keinen Run.
+var int last_dir = 0
 
-// 1. PRÜFEN OB AKTIVER BULLISCHER RUN GEBROCHEN WIRD (BEARISH CISD)
-if bull_run_active
-    if high > bull_run_high
-        bull_run_high     := high
-        bull_run_high_bar := bar_index
-        
-    if close < bull_run_open
-        bull_run_active := false
-        if is_local_high(bull_run_high_bar, bull_run_high, swing_left)
-            bearish_cisd_triggered := true
-            [target_x2, target_ext] = get_line_params(bar_index)
-            new_l = line.new(bull_run_bar, bull_run_open, target_x2, bull_run_open, xloc.bar_index, target_ext, color_bear_line, line_style, line_width)
-            label new_txt = show_label_txt ? label.new(target_x2, bull_run_open, "CISD", xloc.bar_index, yloc.price, color(na), label.style_none, color_bear_line, size.small) : na
-            new_dot = label.new(bull_run_high_bar, bull_run_high, "", xloc.bar_index, yloc.abovebar, color_bear_dot, label.style_circle, color(na), dot_size, text.align_center, "Protected High")
-            register_swing(new_l, new_dot, new_txt, false)
+bool bullish_cisd_triggered = false
+bool bearish_cisd_triggered = false
 
-// 2. PRÜFEN OB AKTIVER BÄRISCHER RUN GEBROCHEN WIRD (BULLISH CISD)
-if bear_run_active
-    if low < bear_run_low
-        bear_run_low     := low
-        bear_run_low_bar := bar_index
-        
-    if close > bear_run_open
-        bear_run_active := false
-        if is_local_low(bear_run_low_bar, bear_run_low, swing_left)
-            bullish_cisd_triggered := true
-            [target_x2, target_ext] = get_line_params(bar_index)
-            new_l = line.new(bear_run_bar, bear_run_open, target_x2, bear_run_open, xloc.bar_index, target_ext, color_bull_line, line_style, line_width)
-            label new_txt = show_label_txt ? label.new(target_x2, bear_run_open, "CISD", xloc.bar_index, yloc.price, color(na), label.style_none, color_bull_line, size.small) : na
-            new_dot = label.new(bear_run_low_bar, bear_run_low, "", xloc.bar_index, yloc.belowbar, color_bull_dot, label.style_circle, color(na), dot_size, text.align_center, "Protected Low")
-            register_swing(new_l, new_dot, new_txt, true)
+if barstate.isconfirmed
+    // 1. PRÜFEN OB AKTIVER BULLISCHER RUN GEBROCHEN WIRD (BEARISH CISD)
+    if bull_run_active
+        if high > bull_run_high
+            bull_run_high     := high
+            bull_run_high_bar := bar_index
 
-// 3. NEUE OPPOSING RUNS STARTEN ODER FORTSETZEN
-if close > open
-    if not bull_run_active or close[1] <= open[1]
-        bull_run_active   := true
-        bull_run_open     := open
-        bull_run_bar      := bar_index
-        bull_run_high     := high
-        bull_run_high_bar := bar_index
-    else if high > bull_run_high
-        bull_run_high     := high
-        bull_run_high_bar := bar_index
+        if close < bull_run_open
+            bull_run_active := false
+            if is_local_high(bull_run_high_bar, bull_run_high, swing_left)
+                bearish_cisd_triggered := true
+                [target_x2, target_ext] = get_line_params(bar_index)
+                new_l = line.new(bull_run_bar, bull_run_open, target_x2, bull_run_open, xloc.bar_index, target_ext, color_bear_line, line_style, line_width)
+                label new_txt = show_label_txt ? label.new(target_x2, bull_run_open, "CISD", xloc.bar_index, yloc.price, color(na), label.style_none, color_bear_line, size.small) : na
+                new_dot = label.new(bull_run_high_bar, bull_run_high, "", xloc.bar_index, yloc.abovebar, color_bear_dot, label.style_circle, color(na), dot_size, text.align_center, "Protected High")
+                register_swing(new_l, new_dot, new_txt, false)
+                alert(str.format("{0} {1}: Bearish CISD bestätigt @ {2} | CISD-Open: {3} | Protected High: {4}", syminfo.ticker, timeframe.period, str.tostring(close, format.mintick), str.tostring(bull_run_open, format.mintick), str.tostring(bull_run_high, format.mintick)), alert.freq_once_per_bar_close)
 
-if close < open
-    if not bear_run_active or close[1] >= open[1]
-        bear_run_active  := true
-        bear_run_open    := open
-        bear_run_bar     := bar_index
-        bear_run_low     := low
-        bear_run_low_bar := bar_index
-    else if low < bear_run_low
-        bear_run_low     := low
-        bear_run_low_bar := bar_index
+    // 2. PRÜFEN OB AKTIVER BÄRISCHER RUN GEBROCHEN WIRD (BULLISH CISD)
+    if bear_run_active
+        if low < bear_run_low
+            bear_run_low     := low
+            bear_run_low_bar := bar_index
+
+        if close > bear_run_open
+            bear_run_active := false
+            if is_local_low(bear_run_low_bar, bear_run_low, swing_left)
+                bullish_cisd_triggered := true
+                [target_x2, target_ext] = get_line_params(bar_index)
+                new_l = line.new(bear_run_bar, bear_run_open, target_x2, bear_run_open, xloc.bar_index, target_ext, color_bull_line, line_style, line_width)
+                label new_txt = show_label_txt ? label.new(target_x2, bear_run_open, "CISD", xloc.bar_index, yloc.price, color(na), label.style_none, color_bull_line, size.small) : na
+                new_dot = label.new(bear_run_low_bar, bear_run_low, "", xloc.bar_index, yloc.belowbar, color_bull_dot, label.style_circle, color(na), dot_size, text.align_center, "Protected Low")
+                register_swing(new_l, new_dot, new_txt, true)
+                alert(str.format("{0} {1}: Bullish CISD bestätigt @ {2} | CISD-Open: {3} | Protected Low: {4}", syminfo.ticker, timeframe.period, str.tostring(close, format.mintick), str.tostring(bear_run_open, format.mintick), str.tostring(bear_run_low, format.mintick)), alert.freq_once_per_bar_close)
+
+    // 3. NEUE OPPOSING RUNS STARTEN ODER FORTSETZEN
+    // Referenz-Open wird bei jeder neuen Opposing-Serie aktualisiert;
+    // das Swing-Extrem bleibt jedoch über den gesamten aktiven Run erhalten.
+    if close > open
+        if not bull_run_active
+            bull_run_active   := true
+            bull_run_open     := open
+            bull_run_bar      := bar_index
+            bull_run_high     := high
+            bull_run_high_bar := bar_index
+        else if last_dir != 1
+            bull_run_open     := open
+            bull_run_bar      := bar_index
+            if high > bull_run_high
+                bull_run_high     := high
+                bull_run_high_bar := bar_index
+        else if high > bull_run_high
+            bull_run_high     := high
+            bull_run_high_bar := bar_index
+        last_dir := 1
+    else if close < open
+        if not bear_run_active
+            bear_run_active  := true
+            bear_run_open    := open
+            bear_run_bar     := bar_index
+            bear_run_low     := low
+            bear_run_low_bar := bar_index
+        else if last_dir != -1
+            bear_run_open    := open
+            bear_run_bar     := bar_index
+            if low < bear_run_low
+                bear_run_low     := low
+                bear_run_low_bar := bar_index
+        else if low < bear_run_low
+            bear_run_low     := low
+            bear_run_low_bar := bar_index
+        last_dir := -1
 
 // ==========================================
 // ALARME (ALERTS)
 // ==========================================
-alertcondition(bullish_cisd_triggered, title="Bullish CISD (Opposing Run)", message="Bullish CISD bestätigt: Protected Low validiert!")
-alertcondition(bearish_cisd_triggered, title="Bearish CISD (Opposing Run)", message="Bearish CISD bestätigt: Protected High validiert!")
+alertcondition(bullish_cisd_triggered, title="Bullish CISD (Opposing Run)", message="{{ticker}} {{interval}} @ {{close}} – Bullish CISD bestätigt: Protected Low validiert!")
+alertcondition(bearish_cisd_triggered, title="Bearish CISD (Opposing Run)", message="{{ticker}} {{interval}} @ {{close}} – Bearish CISD bestätigt: Protected High validiert!")
