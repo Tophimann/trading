@@ -1,4 +1,6 @@
 //@version=6
+// HARTE REGEL #1 (UNVERLETZBAR): Jeder Protected Swing MUSS ein echtes 3-Kerzen-Swing-High/-Low sein
+// (Protected High: high[k] > high[k-1] UND high[k] > high[k+1]; Protected Low: low[k] < low[k-1] UND low[k] < low[k+1]).
 // CISD-Definition: Referenz-Open ist das Open der extrembildenden Opposing-Serie
 // (eine neue Opposing-Serie überschreibt das CISD-Level erst, wenn sie ein neues Swing-Extrem bildet).
 // 1st iFVG: Erster entgegengesetzter 3-Kerzen-FVG, der zwischen Protected Extrem und Ablauf des
@@ -11,7 +13,7 @@ indicator("Protected Swings mit CISD & 1st iFVG (Opposing Run) [SMC / ICT]", ove
 // EINSTELLUNGEN (INPUTS)
 // ==========================================
 grp_swing = "Swing & CISD Einstellungen"
-swing_left      = input.int(2, "Swing-Filter links (0 = Alle CISDs)", minval=0, maxval=50, group=grp_swing, tooltip="Wie viele Kerzen links vom Hoch/Tief niedriger/höher sein müssen. Kleinere Werte (z. B. 2) erkennen auch kurzfristige Swings ohne Pivot-Rechts-Lag. Equal Highs/Lows werden als gültiger Swing akzeptiert. CISD-Referenz ist das Open der extrembildenden Opposing-Serie. 0 = jeder CISD ohne Filter.")
+swing_left      = input.int(2, "Swing-Filter links (Min. 1 links & 1 rechts immer aktiv)", minval=1, maxval=50, group=grp_swing, tooltip="Harte Regel #1: Jeder Protected Swing muss IMMER strikt höher/tiefer sein als 1 Kerze links UND 1 Kerze rechts. Werte > 1 prüfen zusätzliche Kerzen links. CISD-Referenz ist das Open der extrembildenden Opposing-Serie.")
 max_swings      = input.int(5, "Anzahl angezeigter Protected Swings (0 = Max)", minval=0, maxval=250, group=grp_swing, tooltip="Wie viele Protected Swings maximal im Chart sichtbar bleiben sollen. Ältere werden automatisch gelöscht. 0 = Maximum innerhalb des TradingView-Limits (500 Linien/Labels).")
 separate_counts = input.bool(true, "Zählung getrennt für Highs & Lows", group=grp_swing, tooltip="Aktiv: Zeigt z. B. die letzten 5 Highs UND 5 Lows. Inaktiv: Zeigt die letzten 5 Swings insgesamt.")
 show_label_txt  = input.bool(true, "Text 'CISD' am Ende der Linie anzeigen", group=grp_swing)
@@ -116,6 +118,18 @@ type IfvgZone
     bool  active
     int   inv_bar
 
+type PendingCisd
+    bool  is_bull
+    int   cisd_bar
+    float cisd_open
+    int   break_bar
+    int   extreme_bar
+    float extreme_price
+    float break_close
+    int   ifvg_start
+    float ifvg_top
+    float ifvg_bot
+
 var array<Swing>    all_swings  = array.new<Swing>()
 var array<Swing>    bull_swings = array.new<Swing>()
 var array<Swing>    bear_swings = array.new<Swing>()
@@ -182,42 +196,48 @@ update_active_ifvgs(array<IfvgZone> arr) =>
                     z.active := false
 
 // ==========================================
-// HELPER: LOKALES SWING-HOCH / -TIEF PRÜFEN (OHNE RECHTS-LAG)
+// HELPER: HARTE SWING-POINT-REGEL #1 (LINKS & RECHTS) + ZUSÄTZLICHER LINKS-FILTER
 // ==========================================
-// Hinweis: Bei Überschreitung des History-Puffers (MAX_HIST_BARS) verhält sich
-// der Filter bewusst fail-closed (ok := false), da der Swing nicht prüfbar ist.
-is_local_high(int target_bar, float target_high, int left_bars) =>
-    bool ok = true
-    if left_bars > 0
-        int offset = bar_index - target_bar
-        if offset >= 0
-            for i = 1 to left_bars
-                int idx = offset + i
-                if idx > MAX_HIST_BARS
-                    ok := false
-                    break
-                if idx > bar_index
-                    break
-                if high[idx] > target_high
-                    ok := false
-                    break
+// HARTE REGEL #1 (UNVERLETZBAR):
+// Protected High: high[k] > high[k-1] UND high[k] > high[k+1]
+// Protected Low:  low[k]  < low[k-1]  UND low[k]  < low[k+1]
+// Bei Überschreitung des History-Puffers (MAX_HIST_BARS) verhält sich der Filter fail-closed.
+is_valid_swing_high(int target_bar, float target_high, int left_bars) =>
+    bool ok = false
+    int offset = bar_index - target_bar
+    if offset >= 1 and offset + 1 <= bar_index and offset + 1 <= MAX_HIST_BARS
+        if target_high > high[offset + 1] and target_high > high[offset - 1]
+            ok := true
+            if left_bars > 1
+                for i = 2 to left_bars
+                    int idx = offset + i
+                    if idx > MAX_HIST_BARS
+                        ok := false
+                        break
+                    if idx > bar_index
+                        break
+                    if high[idx] > target_high
+                        ok := false
+                        break
     ok
 
-is_local_low(int target_bar, float target_low, int left_bars) =>
-    bool ok = true
-    if left_bars > 0
-        int offset = bar_index - target_bar
-        if offset >= 0
-            for i = 1 to left_bars
-                int idx = offset + i
-                if idx > MAX_HIST_BARS
-                    ok := false
-                    break
-                if idx > bar_index
-                    break
-                if low[idx] < target_low
-                    ok := false
-                    break
+is_valid_swing_low(int target_bar, float target_low, int left_bars) =>
+    bool ok = false
+    int offset = bar_index - target_bar
+    if offset >= 1 and offset + 1 <= bar_index and offset + 1 <= MAX_HIST_BARS
+        if target_low < low[offset + 1] and target_low < low[offset - 1]
+            ok := true
+            if left_bars > 1
+                for i = 2 to left_bars
+                    int idx = offset + i
+                    if idx > MAX_HIST_BARS
+                        ok := false
+                        break
+                    if idx > bar_index
+                        break
+                    if low[idx] < target_low
+                        ok := false
+                        break
     ok
 
 // ==========================================
@@ -260,6 +280,11 @@ var float pend_bull_top   = na
 var float pend_bull_bot   = na
 var int   pend_bull_inv   = na
 
+// 1-Bar-Wartezustand, falls die CISD-Bruchkerze selbst das Extrem gebildet hat:
+// Erst die nächste Kerze (target_bar + 1) bestätigt, ob wirklich ein 3-Kerzen-Swing vorliegt.
+var PendingCisd wait_bear_cisd = na
+var PendingCisd wait_bull_cisd = na
+
 bool bullish_cisd_triggered = false
 bool bearish_cisd_triggered = false
 bool bullish_ifvg_triggered = false
@@ -277,6 +302,51 @@ if barstate.isconfirmed
             array.push(bull_fvg_cands, FvgCand.new(bar_index - 2, low, high[2]))
             while array.size(bull_fvg_cands) > MAX_FVG_CANDS
                 array.shift(bull_fvg_cands)
+
+    // -1. AUFGESCHOBENE 1-BAR-SWING-BESTÄTIGUNG PRÜFEN (HARTE REGEL #1: RECHTS-KERZE)
+    if not na(wait_bear_cisd)
+        PendingCisd p = wait_bear_cisd
+        wait_bear_cisd := na
+        if is_valid_swing_high(p.extreme_bar, p.extreme_price, swing_left)
+            bearish_cisd_triggered := true
+            seek_bull_ifvg := false
+            [target_x2, target_ext] = get_line_params(p.break_bar)
+            new_l = line.new(p.cisd_bar, p.cisd_open, target_x2, p.cisd_open, xloc.bar_index, target_ext, color_bear_line, line_style, line_width)
+            label new_txt = show_label_txt ? label.new(target_x2, p.cisd_open, "CISD", xloc.bar_index, yloc.price, color(na), label.style_none, color_bear_line, size.small) : na
+            new_dot = label.new(p.extreme_bar, p.extreme_price, "", xloc.bar_index, yloc.abovebar, color_bear_dot, label.style_circle, color(na), dot_size, text.align_center, "Protected High")
+            register_swing(new_l, new_dot, new_txt, false)
+            alert(str.format("{0} {1}: Bearish CISD bestätigt @ {2} | CISD-Open: {3} | Protected High: {4}", syminfo.ticker, timeframe.period, str.tostring(p.break_close, format.mintick), str.tostring(p.cisd_open, format.mintick), str.tostring(p.extreme_price, format.mintick)), alert.freq_once_per_bar_close)
+            if not na(p.ifvg_start) and close <= p.ifvg_top
+                seek_bear_ifvg := false
+                if show_ifvg
+                    bearish_ifvg_triggered := true
+                    create_ifvg(p.ifvg_start, p.ifvg_top, p.ifvg_bot, false)
+                    alert(str.format("{0} {1}: 1st Bearish iFVG (CISD) @ {2} | Zone: {3} - {4}", syminfo.ticker, timeframe.period, str.tostring(close, format.mintick), str.tostring(p.ifvg_bot, format.mintick), str.tostring(p.ifvg_top, format.mintick)), alert.freq_once_per_bar_close)
+            else
+                seek_bear_ifvg  := true
+                seek_bear_since := p.break_bar
+
+    if not na(wait_bull_cisd)
+        PendingCisd p = wait_bull_cisd
+        wait_bull_cisd := na
+        if is_valid_swing_low(p.extreme_bar, p.extreme_price, swing_left)
+            bullish_cisd_triggered := true
+            seek_bear_ifvg := false
+            [target_x2, target_ext] = get_line_params(p.break_bar)
+            new_l = line.new(p.cisd_bar, p.cisd_open, target_x2, p.cisd_open, xloc.bar_index, target_ext, color_bull_line, line_style, line_width)
+            label new_txt = show_label_txt ? label.new(target_x2, p.cisd_open, "CISD", xloc.bar_index, yloc.price, color(na), label.style_none, color_bull_line, size.small) : na
+            new_dot = label.new(p.extreme_bar, p.extreme_price, "", xloc.bar_index, yloc.belowbar, color_bull_dot, label.style_circle, color(na), dot_size, text.align_center, "Protected Low")
+            register_swing(new_l, new_dot, new_txt, true)
+            alert(str.format("{0} {1}: Bullish CISD bestätigt @ {2} | CISD-Open: {3} | Protected Low: {4}", syminfo.ticker, timeframe.period, str.tostring(p.break_close, format.mintick), str.tostring(p.cisd_open, format.mintick), str.tostring(p.extreme_price, format.mintick)), alert.freq_once_per_bar_close)
+            if not na(p.ifvg_start) and close >= p.ifvg_bot
+                seek_bull_ifvg := false
+                if show_ifvg
+                    bullish_ifvg_triggered := true
+                    create_ifvg(p.ifvg_start, p.ifvg_top, p.ifvg_bot, true)
+                    alert(str.format("{0} {1}: 1st Bullish iFVG (CISD) @ {2} | Zone: {3} - {4}", syminfo.ticker, timeframe.period, str.tostring(close, format.mintick), str.tostring(p.ifvg_bot, format.mintick), str.tostring(p.ifvg_top, format.mintick)), alert.freq_once_per_bar_close)
+            else
+                seek_bull_ifvg  := true
+                seek_bull_since := p.break_bar
 
     // Vorgemerkte iFVGs auf Invalidierung per Close oder Ablauf des Suchfensters prüfen
     if not na(pend_bear_start)
@@ -344,7 +414,11 @@ if barstate.isconfirmed
     // 1. PRÜFEN OB AKTIVER BULLISCHER RUN GEBROCHEN WIRD (BEARISH CISD)
     if bear_break
         bull_run_active := false
-        if is_local_high(bull_run_high_bar, bull_run_high, swing_left)
+        if bull_run_high_bar == bar_index
+            // Extrem liegt auf der Bruchkerze selbst -> 1 Kerze auf Rechts-Bestätigung warten
+            if bar_index >= 1 and bull_run_high > high[1]
+                wait_bear_cisd := PendingCisd.new(false, bull_run_bar, bull_run_open, bar_index, bull_run_high_bar, bull_run_high, close, pend_bear_start, pend_bear_top, pend_bear_bot)
+        else if is_valid_swing_high(bull_run_high_bar, bull_run_high, swing_left)
             bearish_cisd_triggered := true
             seek_bull_ifvg := false
             [target_x2, target_ext] = get_line_params(bar_index)
@@ -370,7 +444,11 @@ if barstate.isconfirmed
     // 2. PRÜFEN OB AKTIVER BÄRISCHER RUN GEBROCHEN WIRD (BULLISH CISD)
     if bull_break
         bear_run_active := false
-        if is_local_low(bear_run_low_bar, bear_run_low, swing_left)
+        if bear_run_low_bar == bar_index
+            // Extrem liegt auf der Bruchkerze selbst -> 1 Kerze auf Rechts-Bestätigung warten
+            if bar_index >= 1 and bear_run_low < low[1]
+                wait_bull_cisd := PendingCisd.new(true, bear_run_bar, bear_run_open, bar_index, bear_run_low_bar, bear_run_low, close, pend_bull_start, pend_bull_top, pend_bull_bot)
+        else if is_valid_swing_low(bear_run_low_bar, bear_run_low, swing_left)
             bullish_cisd_triggered := true
             seek_bear_ifvg := false
             [target_x2, target_ext] = get_line_params(bar_index)
