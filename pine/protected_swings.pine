@@ -20,8 +20,9 @@ grp_ifvg = "1st Inversion FVG (iFVG) nach CISD"
 show_ifvg       = input.bool(true, "1st iFVG nach CISD anzeigen", group=grp_ifvg, tooltip="Markiert den ersten entgegengesetzten 3-Kerzen-FVG, der auf oder nach einer CISD-Bruchkerze in CISD-Richtung per Close invertiert wird.")
 max_ifvgs       = input.int(3, "Anzahl angezeigter iFVGs (0 = Max)", minval=0, maxval=250, group=grp_ifvg, tooltip="Wie viele 1st iFVGs maximal im Chart sichtbar bleiben sollen (bei getrennter Zählung pro Richtung). Ältere werden automatisch gelöscht. 0 = Maximum innerhalb des TradingView-Limits.")
 ifvg_seek_bars  = input.int(15, "iFVG-Suchfenster nach CISD (Bars, 0 = Unbegrenzt)", minval=0, maxval=500, group=grp_ifvg, tooltip="Wie viele Kerzen nach einem bestätigten CISD maximal nach dem 1st iFVG gesucht wird. 0 = unbegrenzt bis zum nächsten Gegen-CISD.")
-show_ifvg_ce    = input.bool(true, "50% Midpoint (CE) Linie anzeigen", group=grp_ifvg)
-show_ifvg_lbl   = input.bool(true, "Label '+iFVG' / '-iFVG' anzeigen", group=grp_ifvg)
+show_ifvg_ce     = input.bool(true, "50% Midpoint (CE) Linie anzeigen", group=grp_ifvg)
+show_ifvg_lbl    = input.bool(true, "Label '+iFVG' / '-iFVG' anzeigen", group=grp_ifvg)
+show_ifvg_border = input.bool(false, "iFVG Box-Rahmen anzeigen", group=grp_ifvg, tooltip="Aktiv: zeigt einen Rahmen um die iFVG-Box. Inaktiv: nur gefüllte Box ohne Rahmen.")
 ifvg_ext_mode   = input.string("Bis Mitigiert (Close)", "iFVG Verlängerung", options=["Bis Mitigiert (Close)", "Bis erster Retest (Touch)", "Feste Balkenanzahl"], group=grp_ifvg, tooltip="Bis Mitigiert (Close): verlängert bis ein Close durch die Gegenseite der Zone bricht (Invalidierung). Bis erster Retest (Touch): endet beim ersten Kontakt mit der Zone. Feste Balkenanzahl: feste Breite nach Inversion.")
 ifvg_max_bars   = input.int(50, "Max. Balken nach Inversion (0 = Unbegrenzt)", minval=0, maxval=500, group=grp_ifvg, tooltip="Im Modus 'Feste Balkenanzahl' die feste Breite nach der Inversionskerze; in den Mitigiert-Modi die maximale Verlängerung (0 = bis Mitigierung).")
 color_bull_ifvg = input.color(color.new(#089981, 82), "Farbe: Bullish iFVG Box", group=grp_ifvg)
@@ -151,12 +152,14 @@ create_ifvg(int start_bar, float top_p, float bot_p, bool is_bull) =>
     if effective_ifvg_max > 0
         float mid_p      = (top_p + bot_p) * 0.5
         color bg_col     = is_bull ? color_bull_ifvg : color_bear_ifvg
-        color border_col = is_bull ? color_bull_line : color_bear_line
+        color txt_col    = is_bull ? color_bull_line : color_bear_line
+        color border_col = show_ifvg_border ? txt_col : color(na)
+        int   border_w   = show_ifvg_border ? 1 : 0
         bool  fixed_mode = ifvg_ext_mode == "Feste Balkenanzahl"
         int   x2         = fixed_mode ? bar_index + math.max(1, ifvg_max_bars) : bar_index
-        box   bx         = box.new(start_bar, top_p, x2, bot_p, border_color=border_col, border_width=1, bgcolor=bg_col)
+        box   bx         = box.new(start_bar, top_p, x2, bot_p, border_color=border_col, border_width=border_w, bgcolor=bg_col)
         line  ce         = show_ifvg_ce ? line.new(start_bar, mid_p, x2, mid_p, xloc=xloc.bar_index, extend=extend.none, color=color_ifvg_ce, style=line.style_dashed, width=1) : na
-        label lb         = show_ifvg_lbl ? label.new(x2, mid_p, is_bull ? "+iFVG" : "-iFVG", xloc=xloc.bar_index, yloc=yloc.price, color=color(na), style=label.style_label_left, textcolor=border_col, size=size.small) : na
+        label lb         = show_ifvg_lbl ? label.new(x2, mid_p, is_bull ? "+iFVG" : "-iFVG", xloc=xloc.bar_index, yloc=yloc.price, color=color(na), style=label.style_label_left, textcolor=txt_col, size=size.small) : na
         array<IfvgZone> target_arr = separate_counts ? (is_bull ? bull_ifvgs : bear_ifvgs) : all_ifvgs
         array.push(target_arr, IfvgZone.new(bx, ce, lb, top_p, bot_p, is_bull, not fixed_mode, bar_index))
         while array.size(target_arr) > effective_ifvg_max
