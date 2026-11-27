@@ -1,4 +1,4 @@
-//@version=5
+//@version=6
 // CISD-Definition: Referenz-Open ist das Open der extrembildenden Opposing-Serie
 // (eine neue Opposing-Serie überschreibt das CISD-Level erst, wenn sie ein neues Swing-Extrem bildet).
 // 1st iFVG: Erster entgegengesetzter 3-Kerzen-FVG, der zwischen Protected Extrem und Ablauf des
