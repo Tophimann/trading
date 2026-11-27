@@ -1,7 +1,9 @@
 //@version=5
 // CISD-Definition: Referenz-Open ist das Open der extrembildenden Opposing-Serie
 // (eine neue Opposing-Serie überschreibt das CISD-Level erst, wenn sie ein neues Swing-Extrem bildet).
-// 1st iFVG: Erster entgegengesetzter 3-Kerzen-FVG, der auf oder nach der CISD-Bruchkerze per Close invertiert wird.
+// 1st iFVG: Erster entgegengesetzter 3-Kerzen-FVG, der innerhalb des Suchfensters auf oder nach der
+// CISD-Bruchkerze per Close invertiert wird (bei mehreren Inversionen auf derselben Kerze gilt der
+// zuerst durchbrochene FVG: niedrigstes Top bei Bullish iFVG, höchstes Bottom bei Bearish iFVG).
 // Alle Signale und Alerts sind an barstate.isconfirmed (Bar-Close) gekoppelt (non-repainting).
 indicator("Protected Swings mit CISD & 1st iFVG (Opposing Run) [SMC / ICT]", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500)
 
@@ -16,9 +18,10 @@ show_label_txt  = input.bool(true, "Text 'CISD' am Ende der Linie anzeigen", gro
 
 grp_ifvg = "1st Inversion FVG (iFVG) nach CISD"
 show_ifvg       = input.bool(true, "1st iFVG nach CISD anzeigen", group=grp_ifvg, tooltip="Markiert den ersten entgegengesetzten 3-Kerzen-FVG, der auf oder nach einer CISD-Bruchkerze in CISD-Richtung per Close invertiert wird.")
+ifvg_seek_bars  = input.int(15, "iFVG-Suchfenster nach CISD (Bars, 0 = Unbegrenzt)", minval=0, maxval=500, group=grp_ifvg, tooltip="Wie viele Kerzen nach einem bestätigten CISD maximal nach dem 1st iFVG gesucht wird. 0 = unbegrenzt bis zum nächsten Gegen-CISD.")
 show_ifvg_ce    = input.bool(true, "50% Midpoint (CE) Linie anzeigen", group=grp_ifvg)
 show_ifvg_lbl   = input.bool(true, "Label '+iFVG' / '-iFVG' anzeigen", group=grp_ifvg)
-ifvg_ext_mode   = input.string("Bis Mitigiert (Close)", "iFVG Verlängerung", options=["Bis Mitigiert (Close)", "Bis Mitigiert (Touch)", "Feste Balkenanzahl"], group=grp_ifvg, tooltip="Bis Mitigiert (Close): verlängert bis ein Close durch die Gegenseite der Zone bricht. Bis Mitigiert (Touch): verlängert bis Preis die Zone berührt. Feste Balkenanzahl: feste Breite nach Inversion.")
+ifvg_ext_mode   = input.string("Bis Mitigiert (Close)", "iFVG Verlängerung", options=["Bis Mitigiert (Close)", "Bis erster Retest (Touch)", "Feste Balkenanzahl"], group=grp_ifvg, tooltip="Bis Mitigiert (Close): verlängert bis ein Close durch die Gegenseite der Zone bricht (Invalidierung). Bis erster Retest (Touch): endet beim ersten Kontakt mit der Zone. Feste Balkenanzahl: feste Breite nach Inversion.")
 ifvg_max_bars   = input.int(50, "Max. Balken nach Inversion (0 = Unbegrenzt)", minval=0, maxval=500, group=grp_ifvg, tooltip="Im Modus 'Feste Balkenanzahl' die feste Breite nach der Inversionskerze; in den Mitigiert-Modi die maximale Verlängerung (0 = bis Mitigierung).")
 color_bull_ifvg = input.color(color.new(#089981, 82), "Farbe: Bullish iFVG Box", group=grp_ifvg)
 color_bear_ifvg = input.color(color.new(#f23645, 82), "Farbe: Bearish iFVG Box", group=grp_ifvg)
@@ -37,10 +40,10 @@ color_bear_line = input.color(color.new(#f23645, 10), "Farbe: Linie Bärischer C
 line_width      = input.int(2, "Linienbreite", minval=1, maxval=4, group=grp_visual)
 line_style_str  = input.string("Solid", "Linienstil", options=["Solid", "Dashed", "Dotted"], group=grp_visual)
 
-// History-Puffer explizit absichern gegen dynamische Offset-Laufzeitfehler
+// History-Puffer explizit absichern gegen dynamische Offset-Laufzeitfehler (+1 Sicherheitsreserve)
 const int MAX_HIST_BARS = 1000
-max_bars_back(high, MAX_HIST_BARS)
-max_bars_back(low, MAX_HIST_BARS)
+max_bars_back(high, MAX_HIST_BARS + 1)
+max_bars_back(low, MAX_HIST_BARS + 1)
 
 get_line_style(string style) =>
     switch style
@@ -226,9 +229,11 @@ var int   cand_bear_bar     = na
 // Dojis (close == open) werden neutral behandelt und resetten keinen Run.
 var int last_dir = 0
 
-// Suchstatus für 1st iFVG nach einem bestätigten CISD
-var bool seek_bull_ifvg = false
-var bool seek_bear_ifvg = false
+// Suchstatus & Startbar für das iFVG-Suchfenster nach einem bestätigten CISD
+var bool seek_bull_ifvg  = false
+var bool seek_bear_ifvg  = false
+var int  seek_bull_since = na
+var int  seek_bear_since = na
 
 bool bullish_cisd_triggered = false
 bool bearish_cisd_triggered = false
@@ -236,7 +241,8 @@ bool bullish_ifvg_triggered = false
 bool bearish_ifvg_triggered = false
 
 if barstate.isconfirmed
-    // Neue 3-Kerzen-FVG-Kandidaten erkennen (für spätere Inversion)
+    // Neue 3-Kerzen-FVG-Kandidaten erkennen (FIFO-Puffer auf MAX_FVG_CANDS begrenzt;
+    // bei mehr als 50 offenen FVGs auf einer Seite wird der älteste Kandidat verworfen)
     if bar_index >= 2
         if high < low[2]
             array.push(bear_fvg_cands, FvgCand.new(bar_index - 2, low[2], high))
@@ -288,8 +294,9 @@ if barstate.isconfirmed
         bull_run_active := false
         if is_local_high(bull_run_high_bar, bull_run_high, swing_left)
             bearish_cisd_triggered := true
-            seek_bear_ifvg := true
-            seek_bull_ifvg := false
+            seek_bear_ifvg  := true
+            seek_bear_since := bar_index
+            seek_bull_ifvg  := false
             [target_x2, target_ext] = get_line_params(bar_index)
             new_l = line.new(bull_run_bar, bull_run_open, target_x2, bull_run_open, xloc.bar_index, target_ext, color_bear_line, line_style, line_width)
             label new_txt = show_label_txt ? label.new(target_x2, bull_run_open, "CISD", xloc.bar_index, yloc.price, color(na), label.style_none, color_bear_line, size.small) : na
@@ -302,8 +309,9 @@ if barstate.isconfirmed
         bear_run_active := false
         if is_local_low(bear_run_low_bar, bear_run_low, swing_left)
             bullish_cisd_triggered := true
-            seek_bull_ifvg := true
-            seek_bear_ifvg := false
+            seek_bull_ifvg  := true
+            seek_bull_since := bar_index
+            seek_bear_ifvg  := false
             [target_x2, target_ext] = get_line_params(bar_index)
             new_l = line.new(bear_run_bar, bear_run_open, target_x2, bear_run_open, xloc.bar_index, target_ext, color_bull_line, line_style, line_width)
             label new_txt = show_label_txt ? label.new(target_x2, bear_run_open, "CISD", xloc.bar_index, yloc.price, color(na), label.style_none, color_bull_line, size.small) : na
@@ -334,6 +342,12 @@ if barstate.isconfirmed
         last_dir := -1
 
     // 4. 1ST INVERSION FVG (iFVG) NACH CISD PRÜFEN (INKL. CISD-BRUCHKERZE)
+    // Suchfenster nach ifvg_seek_bars beenden, um verspätete/kontextlose iFVGs zu vermeiden
+    if seek_bull_ifvg and ifvg_seek_bars > 0 and (bar_index - seek_bull_since > ifvg_seek_bars)
+        seek_bull_ifvg := false
+    if seek_bear_ifvg and ifvg_seek_bars > 0 and (bar_index - seek_bear_since > ifvg_seek_bars)
+        seek_bear_ifvg := false
+
     // Bearish FVGs prüfen -> Inversion nach oben (close > top) = Bullish iFVG
     int bear_cands_sz = array.size(bear_fvg_cands)
     if bear_cands_sz > 0
