@@ -12,12 +12,13 @@ indicator("Protected Swings mit CISD & 1st iFVG (Opposing Run) [SMC / ICT]", ove
 // ==========================================
 grp_swing = "Swing & CISD Einstellungen"
 swing_left      = input.int(2, "Swing-Filter links (0 = Alle CISDs)", minval=0, maxval=50, group=grp_swing, tooltip="Wie viele Kerzen links vom Hoch/Tief niedriger/höher sein müssen. Kleinere Werte (z. B. 2) erkennen auch kurzfristige Swings ohne Pivot-Rechts-Lag. Equal Highs/Lows werden als gültiger Swing akzeptiert. CISD-Referenz ist das Open der extrembildenden Opposing-Serie. 0 = jeder CISD ohne Filter.")
-max_swings      = input.int(5, "Anzahl angezeigter Protected Swings (0 = Max)", minval=0, maxval=250, group=grp_swing, tooltip="Wie viele Protected Swings (und zugehörige 1st iFVGs) maximal im Chart sichtbar bleiben sollen. Ältere werden automatisch gelöscht. 0 = Maximum innerhalb des TradingView-Limits (500 Boxen/Linien/Labels).")
+max_swings      = input.int(5, "Anzahl angezeigter Protected Swings (0 = Max)", minval=0, maxval=250, group=grp_swing, tooltip="Wie viele Protected Swings maximal im Chart sichtbar bleiben sollen. Ältere werden automatisch gelöscht. 0 = Maximum innerhalb des TradingView-Limits (500 Linien/Labels).")
 separate_counts = input.bool(true, "Zählung getrennt für Highs & Lows", group=grp_swing, tooltip="Aktiv: Zeigt z. B. die letzten 5 Highs UND 5 Lows. Inaktiv: Zeigt die letzten 5 Swings insgesamt.")
 show_label_txt  = input.bool(true, "Text 'CISD' am Ende der Linie anzeigen", group=grp_swing)
 
 grp_ifvg = "1st Inversion FVG (iFVG) nach CISD"
 show_ifvg       = input.bool(true, "1st iFVG nach CISD anzeigen", group=grp_ifvg, tooltip="Markiert den ersten entgegengesetzten 3-Kerzen-FVG, der auf oder nach einer CISD-Bruchkerze in CISD-Richtung per Close invertiert wird.")
+max_ifvgs       = input.int(3, "Anzahl angezeigter iFVGs (0 = Max)", minval=0, maxval=250, group=grp_ifvg, tooltip="Wie viele 1st iFVGs maximal im Chart sichtbar bleiben sollen (bei getrennter Zählung pro Richtung). Ältere werden automatisch gelöscht. 0 = Maximum innerhalb des TradingView-Limits.")
 ifvg_seek_bars  = input.int(15, "iFVG-Suchfenster nach CISD (Bars, 0 = Unbegrenzt)", minval=0, maxval=500, group=grp_ifvg, tooltip="Wie viele Kerzen nach einem bestätigten CISD maximal nach dem 1st iFVG gesucht wird. 0 = unbegrenzt bis zum nächsten Gegen-CISD.")
 show_ifvg_ce    = input.bool(true, "50% Midpoint (CE) Linie anzeigen", group=grp_ifvg)
 show_ifvg_lbl   = input.bool(true, "Label '+iFVG' / '-iFVG' anzeigen", group=grp_ifvg)
@@ -75,12 +76,21 @@ get_line_params(int break_bar) =>
         x2 := break_bar + extra_bars
     [x2, ext]
 
-// Effektive Obergrenze passend zum TradingView-Limit (500 Boxen / 500 Linien / 500 Labels)
-int lines_per_swing  = 1 + (show_ifvg and show_ifvg_ce ? 1 : 0)
-int labels_per_swing = (show_label_txt ? 2 : 1) + (show_ifvg and show_ifvg_lbl ? 1 : 0)
-int max_objects_per  = math.max(lines_per_swing, labels_per_swing)
-int hard_cap         = separate_counts ? math.floor(500 / (max_objects_per * 2)) : math.floor(500 / max_objects_per)
-int effective_max    = max_swings == 0 ? hard_cap : math.min(max_swings, hard_cap)
+// Effektive Obergrenzen passend zum TradingView-Limit (500 Boxen / 500 Linien / 500 Labels)
+int sides              = separate_counts ? 2 : 1
+int swing_lbl_per      = show_label_txt ? 2 : 1
+int ifvg_line_per      = show_ifvg and show_ifvg_ce  ? 1 : 0
+int ifvg_lbl_per       = show_ifvg and show_ifvg_lbl ? 1 : 0
+int max_per_pair       = math.max(1 + ifvg_line_per, swing_lbl_per + ifvg_lbl_per)
+int swing_hard_cap     = math.floor(500 / (sides * max_per_pair))
+int effective_max      = max_swings == 0 ? swing_hard_cap : math.min(max_swings, math.floor(500 / (sides * swing_lbl_per)))
+int rem_lines          = math.max(0, 500 - effective_max * sides)
+int rem_labels         = math.max(0, 500 - effective_max * sides * swing_lbl_per)
+int ifvg_box_cap       = math.floor(500 / sides)
+int ifvg_line_cap      = ifvg_line_per > 0 ? math.floor(rem_lines / (sides * ifvg_line_per)) : ifvg_box_cap
+int ifvg_lbl_cap       = ifvg_lbl_per  > 0 ? math.floor(rem_labels / (sides * ifvg_lbl_per)) : ifvg_box_cap
+int ifvg_hard_cap      = math.min(ifvg_box_cap, math.min(ifvg_line_cap, ifvg_lbl_cap))
+int effective_ifvg_max = max_ifvgs == 0 ? ifvg_hard_cap : math.min(max_ifvgs, ifvg_hard_cap)
 
 // ==========================================
 // SPEICHER-QUEUES ZUR BEGRENZUNG DER ANZEIGE
@@ -138,18 +148,19 @@ delete_ifvg(IfvgZone z) =>
         label.delete(z.lbl)
 
 create_ifvg(int start_bar, float top_p, float bot_p, bool is_bull) =>
-    float mid_p      = (top_p + bot_p) * 0.5
-    color bg_col     = is_bull ? color_bull_ifvg : color_bear_ifvg
-    color border_col = is_bull ? color_bull_line : color_bear_line
-    bool  fixed_mode = ifvg_ext_mode == "Feste Balkenanzahl"
-    int   x2         = fixed_mode ? bar_index + math.max(1, ifvg_max_bars) : bar_index
-    box   bx         = box.new(start_bar, top_p, x2, bot_p, border_color=border_col, border_width=1, bgcolor=bg_col)
-    line  ce         = show_ifvg_ce ? line.new(start_bar, mid_p, x2, mid_p, xloc=xloc.bar_index, extend=extend.none, color=color_ifvg_ce, style=line.style_dashed, width=1) : na
-    label lb         = show_ifvg_lbl ? label.new(x2, mid_p, is_bull ? "+iFVG" : "-iFVG", xloc=xloc.bar_index, yloc=yloc.price, color=color(na), style=label.style_label_left, textcolor=border_col, size=size.small) : na
-    array<IfvgZone> target_arr = separate_counts ? (is_bull ? bull_ifvgs : bear_ifvgs) : all_ifvgs
-    array.push(target_arr, IfvgZone.new(bx, ce, lb, top_p, bot_p, is_bull, not fixed_mode, bar_index))
-    while array.size(target_arr) > effective_max
-        delete_ifvg(array.shift(target_arr))
+    if effective_ifvg_max > 0
+        float mid_p      = (top_p + bot_p) * 0.5
+        color bg_col     = is_bull ? color_bull_ifvg : color_bear_ifvg
+        color border_col = is_bull ? color_bull_line : color_bear_line
+        bool  fixed_mode = ifvg_ext_mode == "Feste Balkenanzahl"
+        int   x2         = fixed_mode ? bar_index + math.max(1, ifvg_max_bars) : bar_index
+        box   bx         = box.new(start_bar, top_p, x2, bot_p, border_color=border_col, border_width=1, bgcolor=bg_col)
+        line  ce         = show_ifvg_ce ? line.new(start_bar, mid_p, x2, mid_p, xloc=xloc.bar_index, extend=extend.none, color=color_ifvg_ce, style=line.style_dashed, width=1) : na
+        label lb         = show_ifvg_lbl ? label.new(x2, mid_p, is_bull ? "+iFVG" : "-iFVG", xloc=xloc.bar_index, yloc=yloc.price, color=color(na), style=label.style_label_left, textcolor=border_col, size=size.small) : na
+        array<IfvgZone> target_arr = separate_counts ? (is_bull ? bull_ifvgs : bear_ifvgs) : all_ifvgs
+        array.push(target_arr, IfvgZone.new(bx, ce, lb, top_p, bot_p, is_bull, not fixed_mode, bar_index))
+        while array.size(target_arr) > effective_ifvg_max
+            delete_ifvg(array.shift(target_arr))
 
 update_active_ifvgs(array<IfvgZone> arr) =>
     int sz = array.size(arr)
