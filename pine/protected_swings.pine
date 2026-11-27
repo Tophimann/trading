@@ -1,9 +1,9 @@
 //@version=5
 // CISD-Definition: Referenz-Open ist das Open der extrembildenden Opposing-Serie
 // (eine neue Opposing-Serie überschreibt das CISD-Level erst, wenn sie ein neues Swing-Extrem bildet).
-// 1st iFVG: Erster entgegengesetzter 3-Kerzen-FVG, der innerhalb des Suchfensters auf oder nach der
-// CISD-Bruchkerze per Close invertiert wird (bei mehreren Inversionen auf derselben Kerze gilt der
-// zuerst durchbrochene FVG: niedrigstes Top bei Bullish iFVG, höchstes Bottom bei Bearish iFVG).
+// 1st iFVG: Erster entgegengesetzter 3-Kerzen-FVG, der zwischen Protected Extrem und Ablauf des
+// Suchfensters nach dem CISD per Close invertiert wird (bei mehreren Inversionen auf derselben Kerze
+// gilt der zuerst durchbrochene FVG: niedrigstes Top bei Bullish iFVG, höchstes Bottom bei Bearish iFVG).
 // Alle Signale und Alerts sind an barstate.isconfirmed (Bar-Close) gekoppelt (non-repainting).
 indicator("Protected Swings mit CISD & 1st iFVG (Opposing Run) [SMC / ICT]", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500)
 
@@ -17,9 +17,9 @@ separate_counts = input.bool(true, "Zählung getrennt für Highs & Lows", group=
 show_label_txt  = input.bool(true, "Text 'CISD' am Ende der Linie anzeigen", group=grp_swing)
 
 grp_ifvg = "1st Inversion FVG (iFVG) nach CISD"
-show_ifvg       = input.bool(true, "1st iFVG nach CISD anzeigen", group=grp_ifvg, tooltip="Markiert den ersten entgegengesetzten 3-Kerzen-FVG, der auf oder nach einer CISD-Bruchkerze in CISD-Richtung per Close invertiert wird.")
-max_ifvgs       = input.int(3, "Anzahl angezeigter iFVGs (0 = Max)", minval=0, maxval=250, group=grp_ifvg, tooltip="Wie viele 1st iFVGs maximal im Chart sichtbar bleiben sollen (bei getrennter Zählung pro Richtung). Ältere werden automatisch gelöscht. 0 = Maximum innerhalb des TradingView-Limits.")
-ifvg_seek_bars  = input.int(15, "iFVG-Suchfenster nach CISD (Bars, 0 = Unbegrenzt)", minval=0, maxval=500, group=grp_ifvg, tooltip="Wie viele Kerzen nach einem bestätigten CISD maximal nach dem 1st iFVG gesucht wird. 0 = unbegrenzt bis zum nächsten Gegen-CISD.")
+show_ifvg        = input.bool(true, "1st iFVG bei CISD anzeigen", group=grp_ifvg, tooltip="Markiert den ersten entgegengesetzten 3-Kerzen-FVG, der zwischen Protected Extrem und Ablauf des Suchfensters nach dem CISD in CISD-Richtung per Close invertiert wird.")
+max_ifvgs        = input.int(3, "Anzahl angezeigter iFVGs (0 = Max)", minval=0, maxval=250, group=grp_ifvg, tooltip="Wie viele 1st iFVGs maximal im Chart sichtbar bleiben sollen (bei getrennter Zählung pro Richtung). Ältere werden automatisch gelöscht. 0 = Maximum innerhalb des TradingView-Limits.")
+ifvg_seek_bars   = input.int(15, "iFVG-Suchfenster (Bars, 0 = Unbegrenzt)", minval=0, maxval=500, group=grp_ifvg, tooltip="Maximale Distanz in Kerzen (vor und nach dem CISD) für den 1st iFVG. 0 = unbegrenzt bis zum nächsten Gegen-CISD.")
 show_ifvg_ce     = input.bool(true, "50% Midpoint (CE) Linie anzeigen", group=grp_ifvg)
 show_ifvg_lbl    = input.bool(true, "Label '+iFVG' / '-iFVG' anzeigen", group=grp_ifvg)
 show_ifvg_border = input.bool(false, "iFVG Box-Rahmen anzeigen", group=grp_ifvg, tooltip="Aktiv: zeigt einen Rahmen um die iFVG-Box. Inaktiv: nur gefüllte Box ohne Rahmen.")
@@ -249,6 +249,17 @@ var bool seek_bear_ifvg  = false
 var int  seek_bull_since = na
 var int  seek_bear_since = na
 
+// Vorgemerkter 1st iFVG, der bereits auf dem Weg vom Protected High/Low
+// zur CISD-Bruchkerze invertiert wurde (wird bei CISD-Bestätigung gezeichnet)
+var int   pend_bear_start = na
+var float pend_bear_top   = na
+var float pend_bear_bot   = na
+var int   pend_bear_inv   = na
+var int   pend_bull_start = na
+var float pend_bull_top   = na
+var float pend_bull_bot   = na
+var int   pend_bull_inv   = na
+
 bool bullish_cisd_triggered = false
 bool bearish_cisd_triggered = false
 bool bullish_ifvg_triggered = false
@@ -267,6 +278,25 @@ if barstate.isconfirmed
             while array.size(bull_fvg_cands) > MAX_FVG_CANDS
                 array.shift(bull_fvg_cands)
 
+    // Vorgemerkte iFVGs auf Invalidierung per Close oder Ablauf des Suchfensters prüfen
+    if not na(pend_bear_start)
+        bool pend_bear_invalid = close > pend_bear_top
+        bool pend_bear_expired = ifvg_seek_bars > 0 and (bar_index - pend_bear_inv > ifvg_seek_bars)
+        if pend_bear_invalid or pend_bear_expired
+            pend_bear_start := na
+            pend_bear_top   := na
+            pend_bear_bot   := na
+            pend_bear_inv   := na
+
+    if not na(pend_bull_start)
+        bool pend_bull_invalid = close < pend_bull_bot
+        bool pend_bull_expired = ifvg_seek_bars > 0 and (bar_index - pend_bull_inv > ifvg_seek_bars)
+        if pend_bull_invalid or pend_bull_expired
+            pend_bull_start := na
+            pend_bull_top   := na
+            pend_bull_bot   := na
+            pend_bull_inv   := na
+
     // 0. EXTREM- & KANDIDATEN-UPDATE FÜR AKTIVE RUNS (VOR BRUCHPRÜFUNG)
     // Eine neue Opposing-Serie überschreibt das CISD-Referenz-Open erst dann,
     // wenn sie (oder eine direkt folgende Doji-/Wick-Kerze derselben Delivery)
@@ -278,6 +308,10 @@ if barstate.isconfirmed
         if high > bull_run_high
             bull_run_high     := high
             bull_run_high_bar := bar_index
+            pend_bear_start   := na
+            pend_bear_top     := na
+            pend_bear_bot     := na
+            pend_bear_inv     := na
             if (close > open or last_dir == 1) and not na(cand_bull_open)
                 bull_run_open := cand_bull_open
                 bull_run_bar  := cand_bull_bar
@@ -289,6 +323,10 @@ if barstate.isconfirmed
         if low < bear_run_low
             bear_run_low     := low
             bear_run_low_bar := bar_index
+            pend_bull_start  := na
+            pend_bull_top    := na
+            pend_bull_bot    := na
+            pend_bull_inv    := na
             if (close < open or last_dir == -1) and not na(cand_bear_open)
                 bear_run_open := cand_bear_open
                 bear_run_bar  := cand_bear_bar
@@ -308,30 +346,52 @@ if barstate.isconfirmed
         bull_run_active := false
         if is_local_high(bull_run_high_bar, bull_run_high, swing_left)
             bearish_cisd_triggered := true
-            seek_bear_ifvg  := true
-            seek_bear_since := bar_index
-            seek_bull_ifvg  := false
+            seek_bull_ifvg := false
             [target_x2, target_ext] = get_line_params(bar_index)
             new_l = line.new(bull_run_bar, bull_run_open, target_x2, bull_run_open, xloc.bar_index, target_ext, color_bear_line, line_style, line_width)
             label new_txt = show_label_txt ? label.new(target_x2, bull_run_open, "CISD", xloc.bar_index, yloc.price, color(na), label.style_none, color_bear_line, size.small) : na
             new_dot = label.new(bull_run_high_bar, bull_run_high, "", xloc.bar_index, yloc.abovebar, color_bear_dot, label.style_circle, color(na), dot_size, text.align_center, "Protected High")
             register_swing(new_l, new_dot, new_txt, false)
             alert(str.format("{0} {1}: Bearish CISD bestätigt @ {2} | CISD-Open: {3} | Protected High: {4}", syminfo.ticker, timeframe.period, str.tostring(close, format.mintick), str.tostring(bull_run_open, format.mintick), str.tostring(bull_run_high, format.mintick)), alert.freq_once_per_bar_close)
+            if not na(pend_bear_start)
+                seek_bear_ifvg := false
+                if show_ifvg
+                    bearish_ifvg_triggered := true
+                    create_ifvg(pend_bear_start, pend_bear_top, pend_bear_bot, false)
+                    alert(str.format("{0} {1}: 1st Bearish iFVG (CISD) @ {2} | Zone: {3} - {4}", syminfo.ticker, timeframe.period, str.tostring(close, format.mintick), str.tostring(pend_bear_bot, format.mintick), str.tostring(pend_bear_top, format.mintick)), alert.freq_once_per_bar_close)
+            else
+                seek_bear_ifvg  := true
+                seek_bear_since := bar_index
+        pend_bear_start := na
+        pend_bear_top   := na
+        pend_bear_bot   := na
+        pend_bear_inv   := na
 
     // 2. PRÜFEN OB AKTIVER BÄRISCHER RUN GEBROCHEN WIRD (BULLISH CISD)
     if bull_break
         bear_run_active := false
         if is_local_low(bear_run_low_bar, bear_run_low, swing_left)
             bullish_cisd_triggered := true
-            seek_bull_ifvg  := true
-            seek_bull_since := bar_index
-            seek_bear_ifvg  := false
+            seek_bear_ifvg := false
             [target_x2, target_ext] = get_line_params(bar_index)
             new_l = line.new(bear_run_bar, bear_run_open, target_x2, bear_run_open, xloc.bar_index, target_ext, color_bull_line, line_style, line_width)
             label new_txt = show_label_txt ? label.new(target_x2, bear_run_open, "CISD", xloc.bar_index, yloc.price, color(na), label.style_none, color_bull_line, size.small) : na
             new_dot = label.new(bear_run_low_bar, bear_run_low, "", xloc.bar_index, yloc.belowbar, color_bull_dot, label.style_circle, color(na), dot_size, text.align_center, "Protected Low")
             register_swing(new_l, new_dot, new_txt, true)
             alert(str.format("{0} {1}: Bullish CISD bestätigt @ {2} | CISD-Open: {3} | Protected Low: {4}", syminfo.ticker, timeframe.period, str.tostring(close, format.mintick), str.tostring(bear_run_open, format.mintick), str.tostring(bear_run_low, format.mintick)), alert.freq_once_per_bar_close)
+            if not na(pend_bull_start)
+                seek_bull_ifvg := false
+                if show_ifvg
+                    bullish_ifvg_triggered := true
+                    create_ifvg(pend_bull_start, pend_bull_top, pend_bull_bot, true)
+                    alert(str.format("{0} {1}: 1st Bullish iFVG (CISD) @ {2} | Zone: {3} - {4}", syminfo.ticker, timeframe.period, str.tostring(close, format.mintick), str.tostring(pend_bull_bot, format.mintick), str.tostring(pend_bull_top, format.mintick)), alert.freq_once_per_bar_close)
+            else
+                seek_bull_ifvg  := true
+                seek_bull_since := bar_index
+        pend_bull_start := na
+        pend_bull_top   := na
+        pend_bull_bot   := na
+        pend_bull_inv   := na
 
     // 3. NEUE OPPOSING RUNS STARTEN (WENN INAKTIV) & RICHTUNG MERKEN
     if close > open
@@ -343,6 +403,10 @@ if barstate.isconfirmed
             bull_run_high_bar := bar_index
             cand_bull_open    := open
             cand_bull_bar     := bar_index
+            pend_bear_start   := na
+            pend_bear_top     := na
+            pend_bear_bot     := na
+            pend_bear_inv     := na
         last_dir := 1
     else if close < open
         if not bear_run_active
@@ -353,9 +417,13 @@ if barstate.isconfirmed
             bear_run_low_bar := bar_index
             cand_bear_open   := open
             cand_bear_bar    := bar_index
+            pend_bull_start  := na
+            pend_bull_top    := na
+            pend_bull_bot    := na
+            pend_bull_inv    := na
         last_dir := -1
 
-    // 4. 1ST INVERSION FVG (iFVG) NACH CISD PRÜFEN (INKL. CISD-BRUCHKERZE)
+    // 4. 1ST INVERSION FVG (iFVG) PRÜFEN (VORLAUF-INVERSION, CISD-KERZE & SUCHFENSTER DANACH)
     // Suchfenster nach ifvg_seek_bars beenden, um verspätete/kontextlose iFVGs zu vermeiden
     if seek_bull_ifvg and ifvg_seek_bars > 0 and (bar_index - seek_bull_since > ifvg_seek_bars)
         seek_bull_ifvg := false
@@ -368,6 +436,9 @@ if barstate.isconfirmed
         int   best_start = na
         float best_top   = na
         float best_bot   = na
+        int   p_start    = na
+        float p_top      = na
+        float p_bot      = na
         for i = bear_cands_sz - 1 to 0
             FvgCand c = array.get(bear_fvg_cands, i)
             if bar_index - c.start_bar > MAX_HIST_BARS
@@ -377,13 +448,22 @@ if barstate.isconfirmed
                     best_start := c.start_bar
                     best_top   := c.top
                     best_bot   := c.bottom
+                else if bear_run_active and na(pend_bull_start) and (na(p_top) or c.top < p_top)
+                    p_start := c.start_bar
+                    p_top   := c.top
+                    p_bot   := c.bottom
                 array.remove(bear_fvg_cands, i)
         if not na(best_top)
             seek_bull_ifvg := false
             if show_ifvg
                 bullish_ifvg_triggered := true
                 create_ifvg(best_start, best_top, best_bot, true)
-                alert(str.format("{0} {1}: 1st Bullish iFVG nach CISD @ {2} | Zone: {3} - {4}", syminfo.ticker, timeframe.period, str.tostring(close, format.mintick), str.tostring(best_bot, format.mintick), str.tostring(best_top, format.mintick)), alert.freq_once_per_bar_close)
+                alert(str.format("{0} {1}: 1st Bullish iFVG (CISD) @ {2} | Zone: {3} - {4}", syminfo.ticker, timeframe.period, str.tostring(close, format.mintick), str.tostring(best_bot, format.mintick), str.tostring(best_top, format.mintick)), alert.freq_once_per_bar_close)
+        else if not na(p_top)
+            pend_bull_start := p_start
+            pend_bull_top   := p_top
+            pend_bull_bot   := p_bot
+            pend_bull_inv   := bar_index
 
     // Bullish FVGs prüfen -> Inversion nach unten (close < bottom) = Bearish iFVG
     int bull_cands_sz = array.size(bull_fvg_cands)
@@ -391,6 +471,9 @@ if barstate.isconfirmed
         int   best_start = na
         float best_top   = na
         float best_bot   = na
+        int   p_start    = na
+        float p_top      = na
+        float p_bot      = na
         for i = bull_cands_sz - 1 to 0
             FvgCand c = array.get(bull_fvg_cands, i)
             if bar_index - c.start_bar > MAX_HIST_BARS
@@ -400,13 +483,22 @@ if barstate.isconfirmed
                     best_start := c.start_bar
                     best_top   := c.top
                     best_bot   := c.bottom
+                else if bull_run_active and na(pend_bear_start) and (na(p_bot) or c.bottom > p_bot)
+                    p_start := c.start_bar
+                    p_top   := c.top
+                    p_bot   := c.bottom
                 array.remove(bull_fvg_cands, i)
         if not na(best_bot)
             seek_bear_ifvg := false
             if show_ifvg
                 bearish_ifvg_triggered := true
                 create_ifvg(best_start, best_top, best_bot, false)
-                alert(str.format("{0} {1}: 1st Bearish iFVG nach CISD @ {2} | Zone: {3} - {4}", syminfo.ticker, timeframe.period, str.tostring(close, format.mintick), str.tostring(best_bot, format.mintick), str.tostring(best_top, format.mintick)), alert.freq_once_per_bar_close)
+                alert(str.format("{0} {1}: 1st Bearish iFVG (CISD) @ {2} | Zone: {3} - {4}", syminfo.ticker, timeframe.period, str.tostring(close, format.mintick), str.tostring(best_bot, format.mintick), str.tostring(best_top, format.mintick)), alert.freq_once_per_bar_close)
+        else if not na(p_bot)
+            pend_bear_start := p_start
+            pend_bear_top   := p_top
+            pend_bear_bot   := p_bot
+            pend_bear_inv   := bar_index
 
     // 5. AKTIVE iFVG-BOXEN VERLÄNGERN / MITIGIEREN
     if show_ifvg
@@ -424,5 +516,5 @@ if barstate.isconfirmed
 // die statische Alternative – nicht beides gleichzeitig aktivieren (Doppel-Notifications).
 alertcondition(bullish_cisd_triggered, title="Bullish CISD (Opposing Run)", message="{{ticker}} {{interval}} @ {{close}} – Bullish CISD bestätigt: Protected Low validiert!")
 alertcondition(bearish_cisd_triggered, title="Bearish CISD (Opposing Run)", message="{{ticker}} {{interval}} @ {{close}} – Bearish CISD bestätigt: Protected High validiert!")
-alertcondition(bullish_ifvg_triggered, title="1st Bullish iFVG nach CISD", message="{{ticker}} {{interval}} @ {{close}} – 1st Bullish iFVG nach CISD bestätigt!")
-alertcondition(bearish_ifvg_triggered, title="1st Bearish iFVG nach CISD", message="{{ticker}} {{interval}} @ {{close}} – 1st Bearish iFVG nach CISD bestätigt!")
+alertcondition(bullish_ifvg_triggered, title="1st Bullish iFVG (CISD)", message="{{ticker}} {{interval}} @ {{close}} – 1st Bullish iFVG (CISD) bestätigt!")
+alertcondition(bearish_ifvg_triggered, title="1st Bearish iFVG (CISD)", message="{{ticker}} {{interval}} @ {{close}} – 1st Bearish iFVG (CISD) bestätigt!")
